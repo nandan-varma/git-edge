@@ -278,6 +278,13 @@ function arraysEqual(a: string[], b: string[]): boolean {
  *
  * Returns `canMerge`, `fastForward`, and `diverged` — does not attempt
  * a real content merge (no conflict detection in analysis).
+ *
+ * `canMerge: false` means one of the refs didn't resolve (deleted branch,
+ * typo) — a `NotFoundError` from `git.resolveRef`. Any other failure (a
+ * network/storage error reading the ref, a corrupted repo) is rethrown
+ * rather than folded into `canMerge: false`, which would otherwise report
+ * "this branch doesn't exist" for a transient failure that has nothing to
+ * do with whether the branches can merge.
  */
 export async function analyzeMerge(
 	repo: Repo,
@@ -299,7 +306,10 @@ export async function analyzeMerge(
 			fastForward: isDescendant,
 			diverged: !isDescendant,
 		};
-	} catch {
+	} catch (err) {
+		if ((err as { code?: string })?.code !== "NotFoundError") {
+			throw err;
+		}
 		return { canMerge: false, fastForward: false, diverged: false };
 	}
 }

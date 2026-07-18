@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import git from "isomorphic-git";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { analyzeMerge, threeWayMerge } from "../src/merge.js";
 
 let tmpDir: string;
@@ -179,6 +179,25 @@ describe("analyzeMerge", () => {
 			"refs/heads/main",
 		);
 		expect(analysis.canMerge).toBe(false);
+	});
+
+	it("propagates a non-NotFoundError instead of reporting canMerge: false", async () => {
+		// Both refs resolve fine — the failure is in the ancestry walk
+		// (isDescendent), which can fail for reasons unrelated to either ref
+		// existing (a corrupted object, a storage read error) and shouldn't be
+		// reported to the caller as "one of these branches doesn't exist".
+		const repo = await createBareRepo(path.join(tmpDir, "repo3b"));
+		const isDescendentSpy = vi
+			.spyOn(git, "isDescendent")
+			.mockRejectedValue(new Error("object read failed"));
+
+		try {
+			await expect(
+				analyzeMerge(repo, "refs/heads/main", "refs/heads/main"),
+			).rejects.toThrow("object read failed");
+		} finally {
+			isDescendentSpy.mockRestore();
+		}
 	});
 });
 

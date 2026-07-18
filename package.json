@@ -1,6 +1,6 @@
 {
   "name": "@nandan-varma/git-edge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "High-level edge-compatible git operations — parsed-object cache, object-level three-way merge, and repo management utilities. Composes with @nandan-varma/git-fs-s3.",
   "type": "module",
   "exports": {
