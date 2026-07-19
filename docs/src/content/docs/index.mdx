@@ -1,0 +1,80 @@
+---
+title: git-edge
+description: High-level edge-compatible git operations on top of isomorphic-git — an object-level three-way merge that never needs a worktree, a parsed-object cache, and repo-cache/init utilities.
+template: splash
+hero:
+  tagline: Merge git branches at the object level — no worktree, no disk, runs anywhere isomorphic-git does.
+  actions:
+    - text: Get started
+      link: /git-edge/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/nandan-varma/git-edge
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import PackageExports from '../../components/PackageExports.astro';
+
+isomorphic-git's own `git.merge` needs a worktree — a real (or hydrated-to-`/tmp`)
+checkout to run its merge driver against. That's a problem for a bare repo living
+entirely in object storage with no durable disk: merging would mean materializing
+the whole tree locally first. **git-edge**'s `threeWayMerge` works directly on the
+object graph — trees, blobs, commits — no checkout required, safe to run inside a
+Lambda, Worker, or Edge function that only ever sees `{ fs, gitdir }`.
+
+Extracted from the same production git-hosting service as
+[`@nandan-varma/git-fs-s3`](https://github.com/nandan-varma/git-fs-s3) — the two
+compose (see [Getting started](/git-edge/getting-started/)) but neither imports
+the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
+
+## What's in the package
+
+<PackageExports
+	exports={[
+		{
+			path: 'threeWayMerge / analyzeMerge',
+			description:
+				'The object-level merge itself, and a cheap pre-check for whether one is even possible.',
+			href: '/git-edge/guides/three-way-merge/',
+		},
+		{
+			path: 'createParsedObjectCache',
+			description:
+				'A generic LRU for parsed values (rendered commit lists, resolved merge bases) keyed however you like.',
+			href: '/git-edge/guides/parsed-object-cache/',
+		},
+		{
+			path: 'getRepoCache / initBareRepo / estimateRepoSize',
+			description:
+				'Per-repo isomorphic-git packfile cache management, bare-repo init, and disk-usage estimation.',
+			href: '/git-edge/guides/repo-cache-and-init/',
+		},
+	]}
+/>
+
+## Why this shape
+
+<CardGrid stagger>
+	<Card title="No worktree, ever" icon="rocket">
+		Merges run entirely against the object graph — read trees, diff paths,
+		write blobs and a tree, write the commit. No checkout, no `/tmp`, no
+		cleanup.
+	</Card>
+	<Card title="Edge-compatible" icon="cloudflare">
+		No `node:*` imports anywhere in `src/`. Runs on Cloudflare Workers,
+		Vercel Edge, Deno Deploy, and Node identically.
+	</Card>
+	<Card title="Composes with git-fs-s3" icon="puzzle">
+		Pass in any isomorphic-git-compatible `fs` — plain `node:fs`, or
+		`@nandan-varma/git-fs-s3`'s S3/R2-backed one. Neither package imports
+		the other.
+	</Card>
+	<Card title="Production-tested" icon="server">
+		Extracted from the same git-hosting service's merge logic — the
+		fast-forward/reverse-fast-forward shortcuts and the
+		`NotFoundError`-vs-everything-else distinction in `analyzeMerge` exist
+		because real traffic needed them.
+	</Card>
+</CardGrid>

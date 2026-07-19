@@ -1,0 +1,79 @@
+---
+title: Repo cache & init
+description: getRepoCache/invalidateRepoCache for isomorphic-git's packfile cache, initBareRepo, and estimateRepoSize.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## `getRepoCache(ownerKey, repoName)` / `invalidateRepoCache(ownerKey, repoName)`
+
+```typescript
+import { getRepoCache, invalidateRepoCache } from '@nandan-varma/git-edge';
+
+const repo = { fs, gitdir, cache: getRepoCache('alice', 'blog') };
+```
+
+isomorphic-git re-parses a packfile index from scratch on every
+`readTree`/`log`/`readObject` call unless callers share a `cache` object
+across calls — without one, an operation that touches many objects (walking
+commit history, a deep diff) pays that parse cost hundreds of times in a
+single request. `getRepoCache` returns a long-lived, per-repo `object`, keyed
+`` `${ownerKey}/${repoName}` ``, created on first access and reused across
+every subsequent call for that same repo within the process.
+
+<Aside type="tip">
+	isomorphic-git treats this `cache` as opaque and safe to share indefinitely
+	— git objects are content-addressed and immutable, so there's no staleness
+	risk from reusing it across requests, only from reusing it across a repo
+	whose *storage* was rewritten out from under it.
+</Aside>
+
+Call `invalidateRepoCache(ownerKey, repoName)` after anything rewrites a
+repo's storage independently of the process holding this cache — a rename, a
+bulk resync, a repack that ran elsewhere — so stale parsed pack state can't
+leak into the next read.
+
+```typescript
+await renameRepo('alice', 'blog', 'blog-v2');
+invalidateRepoCache('alice', 'blog');
+```
+
+## `initBareRepo(repo, defaultBranch?)`
+
+```typescript
+import { initBareRepo } from '@nandan-varma/git-edge';
+
+await initBareRepo(repo); // defaultBranch defaults to "main"
+```
+
+A thin wrapper over `git.init({ ...repo, dir: repo.gitdir, bare: true, defaultBranch })`.
+Accepts any `fs` — `node:fs`, `@nandan-varma/git-fs-s3`-backed, or in-memory.
+This is the first call for a brand-new repo before anything else (a first
+commit, a first push) can happen against it.
+
+## `estimateRepoSize(repo, stat, list)`
+
+```typescript
+import { estimateRepoSize } from '@nandan-varma/git-edge';
+
+const bytes = await estimateRepoSize(
+  repo,
+  (path) => fs.promises.stat(path),
+  (path) => fs.promises.readdir(path),
+);
+```
+
+Sums file sizes under `objects/` (both `.pack` files and loose objects) by
+walking the directory tree with caller-supplied `stat`/`list` functions —
+"size of a file" isn't part of isomorphic-git's own `fs` contract, so this
+can't assume `node:fs` semantics. For `node:fs`, that's `fs.stat`/`fs.readdir`
+directly; for an object-storage-backed `fs`, `stat` is typically a HEAD
+request per key and `list` a prefix listing.
+
+<Aside type="caution">
+	This can be expensive against remote storage — one request per object
+	under `objects/`. It's a general-purpose helper for occasional reporting
+	(a repo-settings page, a storage-usage dashboard), not something to call
+	on every request. Prefer tracking size incrementally at write time where
+	that's feasible.
+</Aside>

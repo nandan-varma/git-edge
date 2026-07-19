@@ -1,0 +1,116 @@
+---
+title: Three-way merge
+description: How threeWayMerge works — fast-forward shortcuts, tree-level content merge, and conflict handling.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+```typescript
+import { threeWayMerge } from '@nandan-varma/git-edge';
+
+const { commitOid } = await threeWayMerge(repo, sourceRef, targetRef, opts?);
+```
+
+## Why not `git.merge`?
+
+isomorphic-git's own `git.merge` needs a worktree — a real (or hydrated-to-`/tmp`)
+checkout to run its merge driver against. For a bare repo living entirely in
+object storage with no durable disk, that means materializing the whole tree
+locally before merging anything. `threeWayMerge` never does this: it reads
+trees, blobs, and commits directly off the object graph and writes the result
+the same way.
+
+## What it does, in order
+
+<Steps>
+
+1. **Identical refs.** If `sourceRef` and `targetRef` already resolve to the
+   same oid, returns immediately — no writes.
+
+2. **Fast-forward.** If `sourceRef` is a descendant of `targetRef`,
+   `targetRef` is simply moved to `sourceRef`'s oid. No merge commit.
+
+3. **Reverse fast-forward.** If `targetRef` is a descendant of `sourceRef`
+   (target is already ahead), same shortcut, moving `targetRef` to
+   `sourceRef`.
+
+4. **True three-way merge.** Otherwise: finds the merge base via
+   `git.findMergeBase`, flattens all three trees (base, source, target) deep
+   and recursively into flat `path → oid` maps, then walks every path that
+   exists in any of the three:
+   - Added on one side only → take it.
+   - Deleted on one side, unchanged on the other → the deletion wins.
+   - Changed on one side only → take the changed side.
+   - Unchanged on both → keep as-is.
+   - **Changed on both sides** → falls through to content merge (below).
+
+5. Writes the resulting flat map back out as a real tree (building
+   intermediate subdirectory trees as needed), creates a merge commit with
+   both refs as parents, and moves `targetRef` to it.
+
+</Steps>
+
+## Content merge
+
+For paths both sides genuinely changed, `threeWayMerge` first checks for
+degenerate cases — source identical to base, target identical to base, or
+source identical to target — and takes the non-base side directly, no line
+merge needed. Only a path where all three blobs actually differ falls through
+to a from-scratch line-level three-way merge: base/ours/theirs lines are
+walked in lockstep, and each line is taken automatically when only one side
+diverged from base. A line both sides changed differently is wrapped in
+conflict markers:
+
+```
+<<<<<<< ours
+line from source
+=======
+line from target
+>>>>>>> theirs
+```
+
+<Aside type="caution">
+	This is a from-scratch algorithm, not `diff3`/libgit2 — and it's line-level
+	only. There is no binary-file merge support: conflict markers are written
+	as text into whatever bytes the paths held, so binary content produces a
+	nonsensical merged blob rather than a clean conflict signal. If binary
+	paths matter for your use case, detect them upstream (by extension or a
+	content sniff) and handle those paths outside `threeWayMerge` before
+	calling it, or skip merging them automatically.
+</Aside>
+
+## Conflicts
+
+If any path ends up with conflict markers, `threeWayMerge` throws
+`GitMergeConflictError` — but only *after* every path has been processed and
+every conflicted blob has already been written to the object store (with
+markers included). The `conflictingPaths: string[]` on the error tells you
+which paths need human resolution; the written-but-unreferenced blobs mean a
+caller that wants to show "here's the conflicted state, please resolve it" can
+look those blobs up by walking the same merge logic again, rather than losing
+the intermediate result when the error is thrown.
+
+```typescript
+import { GitMergeConflictError } from '@nandan-varma/git-edge';
+
+try {
+  await threeWayMerge(repo, 'feature', 'main');
+} catch (err) {
+  if (err instanceof GitMergeConflictError) {
+    // err.conflictingPaths: string[]
+  }
+}
+```
+
+## Options
+
+`opts?: MergeOpts` — all optional:
+
+| Option | Default |
+| --- | --- |
+| `message` | `` `Merge ${sourceRef} into ${targetRef}` `` |
+| `authorName` | `"Git Edge"` |
+| `authorEmail` | `"git-edge@local"` |
+
+Returns `{ commitOid: string }` — the new merge commit's oid, or the
+fast-forwarded ref's new oid when no merge commit was needed.

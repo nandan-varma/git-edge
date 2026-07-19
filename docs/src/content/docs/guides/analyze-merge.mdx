@@ -1,0 +1,68 @@
+---
+title: Analyzing a merge
+description: analyzeMerge's canMerge/fastForward/diverged shape and its error-propagation contract.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+```typescript
+import { analyzeMerge } from '@nandan-varma/git-edge';
+
+const { canMerge, fastForward, diverged } = await analyzeMerge(repo, sourceRef, targetRef);
+```
+
+A cheap pre-merge check: resolve both refs, then check ancestry with
+`git.isDescendent`. It does **not** walk trees or attempt any content merge —
+that's only knowable by calling [`threeWayMerge`](/git-edge/guides/three-way-merge/)
+itself. Use this to decide whether to show a "fast-forward" vs. "will create a
+merge commit" hint in a UI before the user commits to the operation — not to
+predict whether a real merge will hit content conflicts.
+
+## Return shape
+
+| Field | Meaning |
+| --- | --- |
+| `canMerge` | `false` only if a ref failed to resolve. |
+| `fastForward` | `true` if `sourceRef` is an ancestor of `targetRef` — a plain ref move, no merge commit. |
+| `diverged` | `true` if neither ref is an ancestor of the other — a real merge (with possible content conflicts) is needed. |
+
+## The `canMerge: false` contract
+
+`canMerge: false` means specifically that `git.resolveRef` threw a
+`NotFoundError` for one of the two refs — a deleted branch, a typo, a ref that
+was never created. Any other failure reading a ref (a network/storage error
+against remote object storage, a corrupted repo) is **rethrown**, not folded
+into `canMerge: false`:
+
+```typescript
+try {
+  const sourceOid = await git.resolveRef({ ...repo, ref: sourceRef });
+  const targetOid = await git.resolveRef({ ...repo, ref: targetRef });
+  // ...
+} catch (err) {
+  if ((err as { code?: string })?.code !== "NotFoundError") {
+    throw err;
+  }
+  return { canMerge: false, fastForward: false, diverged: false };
+}
+```
+
+<Aside type="danger">
+	This distinction matters: a caller that treats `canMerge: false` as "these
+	branches can't merge" and silently hides a "merge" button is correct for a
+	missing branch, but wrong for a transient storage failure — that failure
+	should surface as an error, not a quiet UI state that looks identical to
+	"branch was deleted." Don't wrap `analyzeMerge` in a try/catch that
+	swallows everything into `canMerge: false`; let non-`NotFoundError`
+	failures propagate to your own error handling.
+</Aside>
+
+## Relationship to git-fs-s3's `analyzeMerge`
+
+`@nandan-varma/git-fs-s3/ops` exports its own `analyzeMerge` with the same
+`{ canMerge, hasConflicts, conflictingFiles, fastForward }`-shaped intent for
+apps already on that package's `Repo`/`OpsHooks` conventions — see
+[its merge guide](https://nandan-varma.github.io/git-fs-s3/ops/merge/). The
+two aren't interchangeable (different `Repo` shapes, different return
+fields), but either is a reasonable pre-merge check depending on which
+package's conventions the rest of your code already follows.

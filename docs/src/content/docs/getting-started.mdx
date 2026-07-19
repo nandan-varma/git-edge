@@ -1,0 +1,103 @@
+---
+title: Getting started
+description: Install git-edge and perform your first object-level three-way merge.
+---
+
+import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
+
+## Install
+
+<Tabs>
+	<TabItem label="npm">
+		```sh
+		npm install @nandan-varma/git-edge isomorphic-git
+		```
+	</TabItem>
+	<TabItem label="pnpm">
+		```sh
+		pnpm add @nandan-varma/git-edge isomorphic-git
+		```
+	</TabItem>
+	<TabItem label="yarn">
+		```sh
+		yarn add @nandan-varma/git-edge isomorphic-git
+		```
+	</TabItem>
+</Tabs>
+
+<Aside type="note">
+	`isomorphic-git` is a peer dependency — install it yourself.
+	`@nandan-varma/git-fs-s3` is an optional peer on top of that: install it if
+	you need an S3/R2-backed `fs` to pass in. git-edge itself works with any
+	isomorphic-git-compatible `fs`, including plain `node:fs`.
+</Aside>
+
+## Quick start
+
+<Steps>
+
+1. Build the `{ fs, gitdir, cache? }` shape isomorphic-git itself expects — any
+   compatible `fs` works, `node:fs` here.
+
+   ```typescript
+   import fs from 'node:fs';
+
+   const repo = { fs, gitdir: '/repo.git', cache: {} };
+   ```
+
+2. Merge one ref into another. `threeWayMerge` resolves both refs, takes the
+   fast-forward shortcut when possible, and otherwise merges at the tree
+   level — no worktree involved at any point.
+
+   ```typescript
+   import { threeWayMerge, GitMergeConflictError } from '@nandan-varma/git-edge';
+
+   try {
+     const { commitOid } = await threeWayMerge(repo, 'feature', 'main', {
+       authorName: 'Ada',
+       authorEmail: 'ada@example.com',
+     });
+     console.log('merged:', commitOid);
+   } catch (err) {
+     if (err instanceof GitMergeConflictError) {
+       console.log('conflicts in:', err.conflictingPaths);
+     } else {
+       throw err;
+     }
+   }
+   ```
+
+</Steps>
+
+## With git-fs-s3
+
+Same call, backed by object storage instead of local disk — this is the pairing
+git-edge was extracted alongside.
+
+```typescript
+import { createGitFs, MemoryObjectStore } from '@nandan-varma/git-fs-s3';
+import { threeWayMerge, initBareRepo } from '@nandan-varma/git-edge';
+
+const fs = createGitFs(new MemoryObjectStore());
+const repo = { fs, gitdir: '/repo.git', cache: {} };
+
+await initBareRepo(repo);
+// ... commits land on "feature" and "main" via git-fs-s3's fs ...
+await threeWayMerge(repo, 'feature', 'main');
+```
+
+<Aside type="tip">
+	Neither package imports the other — they just agree on the same `{ fs,
+	gitdir, cache? }` shape. Swap in any isomorphic-git-compatible `fs` and
+	`threeWayMerge` works unchanged.
+</Aside>
+
+## Next steps
+
+- Want to know *why* a merge will conflict before attempting one? See
+  [Analyzing a merge](/git-edge/guides/analyze-merge/).
+- Reading the same repo's objects repeatedly (a commit list, a rendered
+  diff)? See [the parsed-object cache guide](/git-edge/guides/parsed-object-cache/).
+- Running many operations against the same repo in one process? See
+  [Repo cache & init](/git-edge/guides/repo-cache-and-init/) for
+  isomorphic-git's own packfile cache.

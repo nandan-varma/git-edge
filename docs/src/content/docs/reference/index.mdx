@@ -1,0 +1,135 @@
+---
+title: Reference
+description: Every export from @nandan-varma/git-edge.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import ApiSignature from '../../../components/ApiSignature.astro';
+
+```typescript
+import { /* ... */ } from '@nandan-varma/git-edge';
+```
+
+## Merge
+
+<ApiSignature
+	name="threeWayMerge"
+	signature="threeWayMerge(repo: Repo, sourceRef: string, targetRef: string, opts?: MergeOpts): Promise<MergeResult>"
+	params={[
+		{ name: 'opts.message', type: 'string', description: 'Default <code>`Merge ${sourceRef} into ${targetRef}`</code>.', optional: true },
+		{ name: 'opts.authorName', type: 'string', description: 'Default <code>"Git Edge"</code>.', optional: true },
+		{ name: 'opts.authorEmail', type: 'string', description: 'Default <code>"git-edge@local"</code>.', optional: true },
+	]}
+	returns="Promise<{ commitOid: string }>"
+>
+	Object-level three-way merge — no worktree. Throws `GitMergeConflictError`
+	on unresolved content conflicts. See
+	[Three-way merge](/git-edge/guides/three-way-merge/) for the full decision
+	tree.
+</ApiSignature>
+
+<ApiSignature
+	name="analyzeMerge"
+	signature="analyzeMerge(repo: Repo, sourceRef: string, targetRef: string): Promise<MergeAnalysis>"
+	returns="Promise<{ canMerge; fastForward; diverged }>"
+>
+	Cheap pre-merge ancestry check — doesn't walk trees or detect content
+	conflicts. See
+	[Analyzing a merge](/git-edge/guides/analyze-merge/) for the
+	`canMerge: false` error-propagation contract.
+</ApiSignature>
+
+## Parsed-object cache
+
+<ApiSignature
+	name="createParsedObjectCache"
+	signature="createParsedObjectCache(options?: ParsedObjectCacheOptions): ParsedObjectStore"
+	params={[
+		{ name: 'options.maxSize', type: 'number', description: 'Byte budget via <code>JSON.stringify</code> length. Default 256 MiB.', optional: true },
+		{ name: 'options.ttl', type: 'number', description: 'Entry TTL in ms. Default 1 hour.', optional: true },
+	]}
+	returns="ParsedObjectStore"
+>
+	A generic in-memory LRU for any JS value, keyed however you like. See
+	[the parsed-object cache guide](/git-edge/guides/parsed-object-cache/).
+</ApiSignature>
+
+`ParsedObjectStore` — the returned interface:
+
+```typescript
+interface ParsedObjectStore {
+  get<T extends object>(key: string): T | null;
+  set<T extends object>(key: string, value: T): void;
+  delete(key: string): void;
+  invalidatePrefix(prefix: string): void;
+}
+```
+
+## Repo cache & init
+
+<ApiSignature
+	name="getRepoCache"
+	signature="getRepoCache(ownerKey: string, repoName: string): object"
+	returns="object"
+>
+	The long-lived isomorphic-git packfile `cache` for a repo, created on
+	first access. See
+	[Repo cache & init](/git-edge/guides/repo-cache-and-init/).
+</ApiSignature>
+
+<ApiSignature
+	name="invalidateRepoCache"
+	signature="invalidateRepoCache(ownerKey: string, repoName: string): void"
+>
+	Drops a repo's cached packfile state — call after any out-of-process
+	storage rewrite.
+</ApiSignature>
+
+<ApiSignature
+	name="initBareRepo"
+	signature="initBareRepo(repo: Repo, defaultBranch?: string): Promise<void>"
+	params={[{ name: 'defaultBranch', type: 'string', description: 'Default <code>"main"</code>.', optional: true }]}
+>
+	Thin wrapper over `git.init({ ...repo, bare: true })`.
+</ApiSignature>
+
+<ApiSignature
+	name="estimateRepoSize"
+	signature="estimateRepoSize(repo: Repo, stat: (path: string) => Promise<{ size: number }>, list: (path: string) => Promise<string[]>): Promise<number>"
+	returns="Promise<number>"
+>
+	Sums `.pack`/loose-object file sizes under `objects/`. Can be expensive
+	against remote storage — see the caution in
+	[Repo cache & init](/git-edge/guides/repo-cache-and-init/).
+</ApiSignature>
+
+## Errors
+
+<ApiSignature name="GitEdgeError" kind="class" signature="class GitEdgeError extends Error">
+	Base class for every error this package throws.
+</ApiSignature>
+
+<ApiSignature
+	name="GitMergeConflictError"
+	kind="class"
+	signature="class GitMergeConflictError extends GitEdgeError"
+>
+	Thrown only by `threeWayMerge`. Carries `conflictingPaths: string[]`.
+</ApiSignature>
+
+<Aside type="note">
+	git-edge's error hierarchy is separate from `@nandan-varma/git-fs-s3`'s —
+	if you compose the two packages and want a single `instanceof` check
+	across both, catch each package's error classes explicitly rather than
+	assuming a shared base class.
+</Aside>
+
+## Types
+
+| Export | Shape |
+| --- | --- |
+| `Repo` | `{ fs: FsClient; gitdir: string; cache?: object }` |
+| `MergeOpts` | `{ message?, authorName?, authorEmail? }` |
+| `MergeResult` | `{ commitOid: string }` |
+| `MergeAnalysis` | `{ canMerge: boolean; fastForward: boolean; diverged: boolean }` |
+| `ParsedObjectCacheOptions` | `{ maxSize?: number; ttl?: number }` |

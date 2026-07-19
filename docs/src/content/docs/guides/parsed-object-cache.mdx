@@ -1,0 +1,71 @@
+---
+title: Parsed-object cache
+description: createParsedObjectCache — a generic LRU for any parsed value, keyed however you like.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+```typescript
+import { createParsedObjectCache } from '@nandan-varma/git-edge';
+
+const cache = createParsedObjectCache({ maxSize: 128 * 1024 * 1024, ttl: 3600_000 });
+```
+
+isomorphic-git's own packfile `cache` object (see
+[Repo cache & init](/git-edge/guides/repo-cache-and-init/)) only saves you
+from re-parsing a pack index. Higher-level *parsed* results built on top of
+that — a rendered commit list, a resolved merge base, a formatted diff — get
+recomputed on every call unless something caches them too. `createParsedObjectCache`
+is a generic in-memory LRU for exactly those values.
+
+## Usage
+
+```typescript
+cache.set(`${oid}:commit`, parsedCommit);
+const hit = cache.get<ParsedCommit>(`${oid}:commit`);
+cache.invalidatePrefix(gitdir); // drop everything under a repo after a rewrite
+```
+
+Key convention is caller-chosen — `` `${oid}:${format}` `` (e.g. `"<sha>:commit"`)
+works well because git objects are content-addressed and immutable, so a key
+built from an oid never goes stale on its own. `invalidatePrefix` exists for
+the cases where staleness comes from *outside* the object graph — a rename, a
+resync, a repack that rewrites storage layout underneath a long-lived process.
+
+## Options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `maxSize` | `256 * 1024 * 1024` (256 MiB) | Byte budget, estimated via `JSON.stringify(value).length` per entry. |
+| `ttl` | `3600 * 1000` (1 hour) | Entry time-to-live in ms. |
+
+<Aside type="note">
+	Size is *estimated*, not measured — `JSON.stringify` is run once per
+	`set()` purely to size the entry, so avoid caching values with expensive
+	`toJSON()`/circular-reference issues. It's a reasonable proxy for "how much
+	memory does this roughly cost," not a precise byte count.
+</Aside>
+
+## `invalidatePrefix`
+
+```typescript
+invalidatePrefix(prefix: string): void
+```
+
+Deletes every key starting with `prefix` — `O(cache size)`, since it iterates
+every key checking `startsWith`. Fine for occasional invalidation (after a
+rewrite event), not something to call per-request or in a hot path.
+
+## Interface
+
+The returned `ParsedObjectStore` is intentionally small and JS-value-generic
+(not tied to any particular parsed shape):
+
+```typescript
+interface ParsedObjectStore {
+  get<T extends object>(key: string): T | null;
+  set<T extends object>(key: string, value: T): void;
+  delete(key: string): void;
+  invalidatePrefix(prefix: string): void;
+}
+```

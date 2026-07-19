@@ -1,0 +1,47 @@
+---
+title: Semantics & limitations
+description: What threeWayMerge does and doesn't guarantee, and where the other helpers stop.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Content merge is line-level, from scratch
+
+`threeWayMerge`'s content merge (used only for paths both sides changed from
+the merge base) is a hand-written line-level three-way merge — not
+`diff3`/libgit2, and not a general diff algorithm. Most changes (added,
+deleted, changed on a single side) never reach it at all; see
+[Three-way merge](/git-edge/guides/three-way-merge/) for the full decision
+tree.
+
+## No binary-file merge support
+
+Conflict markers are written as text into whatever bytes the paths held —
+binary content produces a nonsensical merged blob, not a clean conflict
+signal. Detect binary paths upstream (extension allowlist, a content sniff)
+if that matters for your use case, and route those paths around
+`threeWayMerge`.
+
+## `estimateRepoSize` and the parsed-object cache are independent utilities
+
+Neither is required by `threeWayMerge` or `analyzeMerge` — they're
+general-purpose helpers extracted alongside the merge logic because the same
+production service needed them, not because the merge implementation depends
+on them. Use whichever pieces you need; nothing here requires importing all
+of them together.
+
+## No worktree operations at all
+
+git-edge only ever reads/writes the object graph (trees, blobs, commits) and
+refs — there's no `checkout`, `add`, or `status` here, and no code path that
+expects a real filesystem checkout to exist. If you need those, that's
+isomorphic-git's own worktree API against a real (or hydrated-to-`/tmp`) `fs`,
+outside git-edge's scope entirely.
+
+<Aside type="caution">
+	`threeWayMerge` writes directly to refs (`git.writeRef` with `force:
+	true`) and to the object store — it doesn't serialize concurrent calls
+	against the same repo. Concurrent merges/pushes to the same `targetRef`
+	need external coordination (a per-repo lock or single-writer queue); this
+	package doesn't provide one.
+</Aside>
