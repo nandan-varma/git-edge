@@ -25,7 +25,7 @@ object graph — trees, blobs, commits — no checkout required, safe to run ins
 Lambda, Worker, or Edge function that only ever sees `{ fs, gitdir }`.
 
 Extracted from the same production git-hosting service as
-[`@nandan-varma/git-fs-s3`](https://github.com/nandan-varma/git-fs-s3) — the two
+[`git-fs-s3`](https://github.com/nandan-varma/git-fs-s3) — the two
 compose (see [Getting started](/git-edge/getting-started/)) but neither imports
 the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
 
@@ -68,7 +68,7 @@ the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
 	</Card>
 	<Card title="Composes with git-fs-s3" icon="puzzle">
 		Pass in any isomorphic-git-compatible `fs` — plain `node:fs`, or
-		`@nandan-varma/git-fs-s3`'s S3/R2-backed one. Neither package imports
+		`git-fs-s3`'s S3/R2-backed one. Neither package imports
 		the other.
 	</Card>
 	<Card title="Production-tested" icon="server">

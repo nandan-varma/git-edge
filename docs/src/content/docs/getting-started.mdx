@@ -10,24 +10,24 @@ import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
 <Tabs>
 	<TabItem label="npm">
 		```sh
-		npm install @nandan-varma/git-edge isomorphic-git
+		npm install git-edge isomorphic-git
 		```
 	</TabItem>
 	<TabItem label="pnpm">
 		```sh
-		pnpm add @nandan-varma/git-edge isomorphic-git
+		pnpm add git-edge isomorphic-git
 		```
 	</TabItem>
 	<TabItem label="yarn">
 		```sh
-		yarn add @nandan-varma/git-edge isomorphic-git
+		yarn add git-edge isomorphic-git
 		```
 	</TabItem>
 </Tabs>
 
 <Aside type="note">
 	`isomorphic-git` is a peer dependency — install it yourself.
-	`@nandan-varma/git-fs-s3` is an optional peer on top of that: install it if
+	`git-fs-s3` is an optional peer on top of that: install it if
 	you need an S3/R2-backed `fs` to pass in. git-edge itself works with any
 	isomorphic-git-compatible `fs`, including plain `node:fs`.
 </Aside>
@@ -50,7 +50,7 @@ import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
    level — no worktree involved at any point.
 
    ```typescript
-   import { threeWayMerge, GitMergeConflictError } from '@nandan-varma/git-edge';
+   import { threeWayMerge, GitMergeConflictError } from 'git-edge';
 
    try {
      const { commitOid } = await threeWayMerge(repo, 'feature', 'main', {
@@ -75,8 +75,8 @@ Same call, backed by object storage instead of local disk — this is the pairin
 git-edge was extracted alongside.
 
 ```typescript
-import { createGitFs, MemoryObjectStore } from '@nandan-varma/git-fs-s3';
-import { threeWayMerge, initBareRepo } from '@nandan-varma/git-edge';
+import { createGitFs, MemoryObjectStore } from 'git-fs-s3';
+import { threeWayMerge, initBareRepo } from 'git-edge';
 
 const fs = createGitFs(new MemoryObjectStore());
 const repo = { fs, gitdir: '/repo.git', cache: {} };

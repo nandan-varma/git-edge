@@ -6,7 +6,7 @@ description: How threeWayMerge works — fast-forward shortcuts, tree-level cont
 import { Aside, Steps } from '@astrojs/starlight/components';
 
 ```typescript
-import { threeWayMerge } from '@nandan-varma/git-edge';
+import { threeWayMerge } from 'git-edge';
 
 const { commitOid } = await threeWayMerge(repo, sourceRef, targetRef, opts?);
 ```
@@ -91,7 +91,7 @@ look those blobs up by walking the same merge logic again, rather than losing
 the intermediate result when the error is thrown.
 
 ```typescript
-import { GitMergeConflictError } from '@nandan-varma/git-edge';
+import { GitMergeConflictError } from 'git-edge';
 
 try {
   await threeWayMerge(repo, 'feature', 'main');

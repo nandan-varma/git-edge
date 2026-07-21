@@ -6,7 +6,7 @@ description: analyzeMerge's canMerge/fastForward/diverged shape and its error-pr
 import { Aside } from '@astrojs/starlight/components';
 
 ```typescript
-import { analyzeMerge } from '@nandan-varma/git-edge';
+import { analyzeMerge } from 'git-edge';
 
 const { canMerge, fastForward, diverged } = await analyzeMerge(repo, sourceRef, targetRef);
 ```
@@ -59,7 +59,7 @@ try {
 
 ## Relationship to git-fs-s3's `analyzeMerge`
 
-`@nandan-varma/git-fs-s3/ops` exports its own `analyzeMerge` with the same
+`git-fs-s3/ops` exports its own `analyzeMerge` with the same
 `{ canMerge, hasConflicts, conflictingFiles, fastForward }`-shaped intent for
 apps already on that package's `Repo`/`OpsHooks` conventions — see
 [its merge guide](https://nandan-varma.github.io/git-fs-s3/ops/merge/). The

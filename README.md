@@ -1,12 +1,12 @@
 # git-edge
 
-[![npm version](https://img.shields.io/npm/v/@nandan-varma/git-edge.svg)](https://www.npmjs.com/package/@nandan-varma/git-edge)
+[![npm version](https://img.shields.io/npm/v/git-edge.svg)](https://www.npmjs.com/package/git-edge)
 [![CI](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml)
-[![license](https://img.shields.io/npm/l/@nandan-varma/git-edge.svg)](LICENSE)
+[![license](https://img.shields.io/npm/l/git-edge.svg)](LICENSE)
 
 High-level edge-compatible git operations on top of [isomorphic-git](https://isomorphic-git.org): a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and repo-cache/init utilities. No `node:*` imports anywhere in `src/` — runs on Cloudflare Workers, Vercel Edge, Deno Deploy, and Node.
 
-Extracted from the same production git-hosting service as [`@nandan-varma/git-fs-s3`](https://www.npmjs.com/package/@nandan-varma/git-fs-s3) — the two compose (see below) but neither imports the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
+Extracted from the same production git-hosting service as [`git-fs-s3`](https://www.npmjs.com/package/git-fs-s3) — the two compose (see below) but neither imports the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
 
 ## Why
 
@@ -17,17 +17,17 @@ Separately, isomorphic-git re-parses a packfile index from scratch on every `rea
 ## Install
 
 ```bash
-npm install @nandan-varma/git-edge isomorphic-git
+npm install git-edge isomorphic-git
 ```
 
-`@nandan-varma/git-fs-s3` is an optional peer — install it if you need an S3/R2-backed `fs` to pass in; git-edge itself works with any isomorphic-git-compatible `fs` (including plain `node:fs`).
+`git-fs-s3` is an optional peer — install it if you need an S3/R2-backed `fs` to pass in; git-edge itself works with any isomorphic-git-compatible `fs` (including plain `node:fs`).
 
 ## Quick start
 
 ```typescript
 import git from "isomorphic-git";
 import fs from "node:fs";
-import { threeWayMerge, GitMergeConflictError } from "@nandan-varma/git-edge";
+import { threeWayMerge, GitMergeConflictError } from "git-edge";
 
 const repo = { fs, gitdir: "/repo.git", cache: {} };
 
@@ -49,8 +49,8 @@ try {
 ### With git-fs-s3
 
 ```typescript
-import { createGitFs, MemoryObjectStore } from "@nandan-varma/git-fs-s3";
-import { threeWayMerge, initBareRepo } from "@nandan-varma/git-edge";
+import { createGitFs, MemoryObjectStore } from "git-fs-s3";
+import { threeWayMerge, initBareRepo } from "git-edge";
 
 const fs = createGitFs(new MemoryObjectStore());
 const repo = { fs, gitdir: "/repo.git", cache: {} };

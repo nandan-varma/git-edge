@@ -1,13 +1,13 @@
 ---
 title: Reference
-description: Every export from @nandan-varma/git-edge.
+description: Every export from git-edge.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 import ApiSignature from '../../../components/ApiSignature.astro';
 
 ```typescript
-import { /* ... */ } from '@nandan-varma/git-edge';
+import { /* ... */ } from 'git-edge';
 ```
 
 ## Merge
@@ -118,7 +118,7 @@ interface ParsedObjectStore {
 </ApiSignature>
 
 <Aside type="note">
-	git-edge's error hierarchy is separate from `@nandan-varma/git-fs-s3`'s —
+	git-edge's error hierarchy is separate from `git-fs-s3`'s —
 	if you compose the two packages and want a single `instanceof` check
 	across both, catch each package's error classes explicitly rather than
 	assuming a shared base class.

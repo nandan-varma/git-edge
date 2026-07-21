@@ -8,7 +8,7 @@ import { Aside } from '@astrojs/starlight/components';
 ## `getRepoCache(ownerKey, repoName)` / `invalidateRepoCache(ownerKey, repoName)`
 
 ```typescript
-import { getRepoCache, invalidateRepoCache } from '@nandan-varma/git-edge';
+import { getRepoCache, invalidateRepoCache } from 'git-edge';
 
 const repo = { fs, gitdir, cache: getRepoCache('alice', 'blog') };
 ```
@@ -41,20 +41,20 @@ invalidateRepoCache('alice', 'blog');
 ## `initBareRepo(repo, defaultBranch?)`
 
 ```typescript
-import { initBareRepo } from '@nandan-varma/git-edge';
+import { initBareRepo } from 'git-edge';
 
 await initBareRepo(repo); // defaultBranch defaults to "main"
 ```
 
 A thin wrapper over `git.init({ ...repo, dir: repo.gitdir, bare: true, defaultBranch })`.
-Accepts any `fs` — `node:fs`, `@nandan-varma/git-fs-s3`-backed, or in-memory.
+Accepts any `fs` — `node:fs`, `git-fs-s3`-backed, or in-memory.
 This is the first call for a brand-new repo before anything else (a first
 commit, a first push) can happen against it.
 
 ## `estimateRepoSize(repo, stat, list)`
 
 ```typescript
-import { estimateRepoSize } from '@nandan-varma/git-edge';
+import { estimateRepoSize } from 'git-edge';
 
 const bytes = await estimateRepoSize(
   repo,
