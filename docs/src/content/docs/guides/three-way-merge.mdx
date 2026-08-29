@@ -43,6 +43,14 @@ the same way.
    - Changed on one side only → take the changed side.
    - Unchanged on both → keep as-is.
    - **Changed on both sides** → falls through to content merge (below).
+   - **Added independently on both sides** (no entry for the path in the
+     merge base at all) — same oid on both sides means identical content was
+     added on each branch, so no real conflict: takes it directly, no blob
+     read needed (content-addressing already proves equality). Different
+     oids run the same line-level content merge as the "changed on both
+     sides" case, just without a base to diff against — every differing
+     line is wrapped in conflict markers, since there's no common ancestor
+     content to auto-resolve any of it against.
 
 5. Writes the resulting flat map back out as a real tree (building
    intermediate subdirectory trees as needed), creates a merge commit with
