@@ -219,28 +219,36 @@ function mergeContents(
 
 		if (b === o && b === t) {
 			// All three agree
-			result.push(b!);
+			result.push(b ?? "");
 			bi++;
 			oi++;
 			ti++;
 		} else if (b === o) {
-			// Only theirs changed
-			result.push(t!);
+			// Only theirs changed — including the case where theirs ran out
+			// of lines here (t undefined, i.e. a deletion): `?? ""` matches
+			// what pushing `t` directly already did once joined below
+			// (Array.prototype.join renders an undefined element as ""),
+			// just without relying on `!` to silence the type checker
+			// about it.
+			result.push(t ?? "");
 			bi++;
 			oi++;
 			ti++;
 		} else if (b === t) {
-			// Only ours changed
-			result.push(o!);
+			// Only ours changed — symmetric to the theirs case above.
+			result.push(o ?? "");
 			bi++;
 			oi++;
 			ti++;
 		} else {
-			// Both changed — conflict: take ours + theirs separated by conflict markers
+			// Both changed — conflict: take ours + theirs separated by
+			// conflict markers. o or t can individually be undefined here
+			// too (one side ran out of lines while the other still
+			// conflicts with base) — same `?? ""` reasoning as above.
 			result.push(`<<<<<<< ours`);
-			result.push(o!);
+			result.push(o ?? "");
 			result.push(`=======`);
-			result.push(t!);
+			result.push(t ?? "");
 			result.push(`>>>>>>> theirs`);
 			bi++;
 			oi++;
@@ -415,36 +423,60 @@ export async function threeWayMerge(
 		const sourceOid = sourceMap.get(filepath);
 		const targetOid = targetMap.get(filepath);
 
-		const _baseExists = baseOid !== undefined;
-		const sourceExists = sourceOid !== undefined;
-		const targetExists = targetOid !== undefined;
-
-		if (sourceExists && !targetExists) {
+		if (sourceOid !== undefined && targetOid === undefined) {
 			// Added in source, not in target — take source
-			resultEntries.set(filepath, { oid: sourceOid!, mode: "100644" });
-		} else if (!sourceExists && targetExists) {
+			resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
+		} else if (sourceOid === undefined && targetOid !== undefined) {
 			// Deleted in source, exists in target — keep target
-			resultEntries.set(filepath, { oid: targetOid!, mode: "100644" });
-		} else if (sourceExists && targetExists) {
-			// Exists in both — check if both changed from base
+			resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
+		} else if (sourceOid !== undefined && targetOid !== undefined) {
+			// Exists in both — check if both changed from base. A path with
+			// no base entry (both sides independently added it — no common
+			// ancestor content to diff against) is its own case below,
+			// compared directly against each other instead of a base blob
+			// that doesn't exist.
 			const sourceChanged = sourceOid !== baseOid;
 			const targetChanged = targetOid !== baseOid;
 
 			if (!sourceChanged && !targetChanged) {
 				// Neither changed — keep as-is
-				resultEntries.set(filepath, { oid: targetOid!, mode: "100644" });
+				resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
 			} else if (!sourceChanged) {
 				// Only target changed — take target
-				resultEntries.set(filepath, { oid: targetOid!, mode: "100644" });
+				resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
 			} else if (!targetChanged) {
 				// Only source changed — take source
-				resultEntries.set(filepath, { oid: sourceOid!, mode: "100644" });
+				resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
+			} else if (baseOid === undefined) {
+				// Both sides independently added this path. Same oid means
+				// identical content on both sides — no real conflict. Different
+				// oids is a genuine conflict with no common ancestor to 3-way
+				// merge against, so run the line-level merge against an empty
+				// "base" — mergeContents already treats an exhausted side as
+				// producing full conflict markers around whatever content the
+				// other side has.
+				if (sourceOid === targetOid) {
+					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
+				} else {
+					const [sourceContent, targetContent] = await Promise.all([
+						readBlob(repo, sourceOid),
+						readBlob(repo, targetOid),
+					]);
+					const merged = mergeContents(
+						new Uint8Array(),
+						sourceContent,
+						targetContent,
+					);
+					conflictingPaths.push(filepath);
+					const mergedOid = await writeBlob(repo, merged);
+					resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
+				}
 			} else {
 				// Both changed — attempt content merge
 				const [baseContent, sourceContent, targetContent] = await Promise.all([
-					readBlob(repo, baseOid!),
-					readBlob(repo, sourceOid!),
-					readBlob(repo, targetOid!),
+					readBlob(repo, baseOid),
+					readBlob(repo, sourceOid),
+					readBlob(repo, targetOid),
 				]);
 
 				if (
@@ -452,19 +484,19 @@ export async function threeWayMerge(
 					baseContent.every((b, i) => b === sourceContent[i])
 				) {
 					// Source is identical to base — take target
-					resultEntries.set(filepath, { oid: targetOid!, mode: "100644" });
+					resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
 				} else if (
 					baseContent.length === targetContent.length &&
 					baseContent.every((b, i) => b === targetContent[i])
 				) {
 					// Target is identical to base — take source
-					resultEntries.set(filepath, { oid: sourceOid!, mode: "100644" });
+					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
 				} else if (
 					sourceContent.length === targetContent.length &&
 					sourceContent.every((b, i) => b === targetContent[i])
 				) {
 					// Source and target are identical — keep either
-					resultEntries.set(filepath, { oid: sourceOid!, mode: "100644" });
+					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
 				} else {
 					// Both truly changed — attempt line-level merge
 					const merged = mergeContents(

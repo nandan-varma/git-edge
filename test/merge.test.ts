@@ -327,4 +327,91 @@ describe("threeWayMerge", () => {
 		const { blob } = await git.readBlob({ ...repo, oid: readmeEntry.oid });
 		expect(new TextDecoder().decode(blob)).toBe("# Updated README");
 	});
+
+	// Regression coverage: a path with no entry in the merge-base tree at
+	// all (both sides independently added it after diverging) used to reach
+	// `readBlob(repo, baseOid!)` with a genuinely undefined baseOid — a
+	// real crash, not a safe assertion, since nothing upstream actually
+	// guaranteed a base entry exists for every path both sides touch.
+	it("merges identical content both sides independently added (no common ancestor)", async () => {
+		const repo = await createBareRepo(path.join(tmpDir, "repo8"));
+		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
+
+		const featureOid = await makeCommit(
+			repo,
+			mainOid,
+			[{ path: "new-file.txt", content: "same content" }],
+			"Add new-file.txt on feature",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/feature",
+			value: featureOid,
+			force: true,
+		});
+
+		const mainOid2 = await makeCommit(
+			repo,
+			mainOid,
+			[{ path: "new-file.txt", content: "same content" }],
+			"Add new-file.txt on main",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/main",
+			value: mainOid2,
+			force: true,
+		});
+
+		const result = await threeWayMerge(
+			repo,
+			"refs/heads/feature",
+			"refs/heads/main",
+		);
+		const commit = await git.readCommit({ ...repo, oid: result.commitOid });
+		const mergedTree = await git.readTree({ ...repo, oid: commit.commit.tree });
+		const entry = mergedTree.tree.find((e) => e.path === "new-file.txt");
+		if (!entry) throw new Error("new-file.txt missing from merged tree");
+
+		const { blob } = await git.readBlob({ ...repo, oid: entry.oid });
+		expect(new TextDecoder().decode(blob)).toBe("same content");
+	});
+
+	it("reports a conflict when both sides independently add different content at the same path", async () => {
+		const repo = await createBareRepo(path.join(tmpDir, "repo9"));
+		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
+
+		const featureOid = await makeCommit(
+			repo,
+			mainOid,
+			[{ path: "new-file.txt", content: "feature version" }],
+			"Add new-file.txt on feature",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/feature",
+			value: featureOid,
+			force: true,
+		});
+
+		const mainOid2 = await makeCommit(
+			repo,
+			mainOid,
+			[{ path: "new-file.txt", content: "main version" }],
+			"Add new-file.txt on main",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/main",
+			value: mainOid2,
+			force: true,
+		});
+
+		await expect(
+			threeWayMerge(repo, "refs/heads/feature", "refs/heads/main"),
+		).rejects.toMatchObject({
+			name: "GitMergeConflictError",
+			conflictingPaths: ["new-file.txt"],
+		});
+	});
 });
