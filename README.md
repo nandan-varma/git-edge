@@ -4,7 +4,7 @@
 [![CI](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/git-edge.svg)](LICENSE)
 
-High-level edge-compatible git operations on top of [isomorphic-git](https://isomorphic-git.org): a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and repo-cache/init utilities. No `node:*` imports anywhere in `src/` — runs on Cloudflare Workers, Vercel Edge, Deno Deploy, and Node.
+High-level edge-compatible git operations on top of [isomorphic-git](https://isomorphic-git.org): a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and per-repo packfile-cache management. No `node:*` imports anywhere in `src/` — runs on Cloudflare Workers, Vercel Edge, Deno Deploy, and Node.
 
 Extracted from the same production git-hosting service as [`git-fs-s3`](https://www.npmjs.com/package/git-fs-s3) — the two compose (see below) but neither imports the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
 
@@ -49,13 +49,14 @@ try {
 ### With git-fs-s3
 
 ```typescript
+import git from "isomorphic-git";
 import { createGitFs, MemoryObjectStore } from "git-fs-s3";
-import { threeWayMerge, initBareRepo } from "git-edge";
+import { threeWayMerge } from "git-edge";
 
 const fs = createGitFs(new MemoryObjectStore());
 const repo = { fs, gitdir: "/repo.git", cache: {} };
 
-await initBareRepo(repo);
+await git.init({ ...repo, dir: repo.gitdir, bare: true });
 // ... commits land on "feature" and "main" via git-fs-s3's fs ...
 await threeWayMerge(repo, "feature", "main");
 ```
@@ -73,9 +74,11 @@ Merges `sourceRef` into `targetRef` at the object level — no worktree.
 
 Returns `{ commitOid }` — the new merge commit, or the fast-forwarded `targetRef`'s new oid.
 
-### `analyzeMerge(repo, sourceRef, targetRef)`
-
-Cheap pre-merge check: resolves both refs and checks ancestry. Returns `{ canMerge, fastForward, diverged }` — `canMerge: false` only means a ref failed to resolve, not that a real merge would conflict (that's only knowable by attempting one; this doesn't walk trees at all). Safe to call before deciding whether to show a "conflicts likely" hint in a UI.
+Want a cheap pre-merge check (resolve both refs, check ancestry, no tree walk
+— "would this be a fast-forward, or has it diverged") before deciding whether
+to show a "conflicts likely" hint in a UI? That's `git-fs-s3/ops`'s
+`analyzeMerge`, not this package's — it composes with `threeWayMerge` (same
+`{ fs, gitdir, cache? }` shape) without either package importing the other.
 
 ### `createParsedObjectCache(options?)`
 
@@ -96,23 +99,15 @@ cache.invalidatePrefix(gitdir); // drop everything under a repo after a rewrite
 
 Per-repo isomorphic-git packfile `cache` object management, keyed `` `${ownerKey}/${repoName}` ``. isomorphic-git treats this `cache` as opaque and safe to share indefinitely (git objects are content-addressed/immutable), so a long-lived per-repo instance turns "reparse this pack's index" from once-per-call into once-per-process. Call `invalidateRepoCache` after anything rewrites a repo's storage out from under a live process (a rename, a bulk resync) so stale parsed state can't leak into the next read.
 
-### `initBareRepo(repo, defaultBranch?)`
-
-Thin wrapper over `git.init({ ...repo, bare: true })` — accepts any fs (git-fs-s3-backed, `node:fs`, in-memory), defaults `defaultBranch` to `"main"`.
-
-### `estimateRepoSize(repo, stat, list)`
-
-Sums `.pack`/loose-object file sizes under `objects/`. Caller supplies `stat`/`list` since "size of a file" isn't part of isomorphic-git's own `fs` contract — for `node:fs` that's `fs.stat`/`fs.readdir`; for an object-storage-backed fs it's typically a HEAD request per key. Can be expensive against remote storage — prefer tracking size incrementally at write time where possible.
-
 ### Errors
 
 `GitEdgeError` — base class. `GitMergeConflictError extends GitEdgeError` — `conflictingPaths: string[]`, thrown only by `threeWayMerge`.
 
 ## Semantics & limitations
 
-- `threeWayMerge`'s content merge is a from-scratch line-level three-way merge (not `diff3`/libgit2), used only for paths both sides changed from the merge base — most changes (added/deleted/single-side-modified) resolve without touching it at all.
+- `threeWayMerge`'s content merge (for paths both sides changed from the merge base — most changes are added/deleted/single-side-modified and resolve without touching it at all) uses [`node-diff3`](https://www.npmjs.com/package/node-diff3)'s LCS-based diff3 algorithm, the same approach GNU diffutils' `diff3` and git's own default merge driver use.
 - No binary-file merge support — conflict markers are written as text into whatever bytes the paths held; binary content will produce a nonsensical merged blob, not a clean conflict signal. Detect binary paths upstream if that matters for your use case.
-- `estimateRepoSize` and the parsed-object cache are general-purpose helpers, not required by `threeWayMerge`/`analyzeMerge` — use whichever pieces you need independently.
+- The parsed-object cache and `getRepoCache`/`invalidateRepoCache` are general-purpose helpers, not required by `threeWayMerge` — use whichever pieces you need independently.
 
 ## License
 
