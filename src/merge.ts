@@ -8,9 +8,11 @@
  * Edge-compatible: no node: imports, uses only isomorphic-git object APIs.
  */
 
-import type { FsClient } from "isomorphic-git";
+import type { Repo } from "git-fs-s3/ops";
 import git from "isomorphic-git";
 import { GitMergeConflictError } from "./errors.js";
+
+export type { Repo };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,23 +33,6 @@ export interface MergeResult {
 	commitOid: string;
 }
 
-/** Analysis of whether a merge is possible. */
-export interface MergeAnalysis {
-	/** True if both refs resolved. */
-	canMerge: boolean;
-	/** True if source is an ancestor of target (fast-forward possible). */
-	fastForward: boolean;
-	/** True if source and target diverged. */
-	diverged: boolean;
-}
-
-/** The repo fs+gitdir shape used by isomorphic-git. */
-export interface Repo {
-	fs: FsClient;
-	gitdir: string;
-	cache?: object;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -59,19 +44,6 @@ function defaultAuthor() {
 		timestamp: Math.floor(Date.now() / 1000),
 		timezoneOffset: 0,
 	};
-}
-
-/** Read a tree object into a flat map of path → oid. */
-async function _flattenTree(
-	repo: Repo,
-	treeOid: string,
-): Promise<Map<string, string>> {
-	const map = new Map<string, string>();
-	const entries = (await git.readTree({ ...repo, oid: treeOid })).tree;
-	for (const entry of entries) {
-		map.set(entry.path, entry.oid);
-	}
-	return map;
 }
 
 /** Recursively flatten a tree into path → oid entries. */
@@ -280,47 +252,6 @@ function arraysEqual(a: string[], b: string[]): boolean {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-/**
- * Analyze whether a merge is possible between two refs.
- *
- * Returns `canMerge`, `fastForward`, and `diverged` — does not attempt
- * a real content merge (no conflict detection in analysis).
- *
- * `canMerge: false` means one of the refs didn't resolve (deleted branch,
- * typo) — a `NotFoundError` from `git.resolveRef`. Any other failure (a
- * network/storage error reading the ref, a corrupted repo) is rethrown
- * rather than folded into `canMerge: false`, which would otherwise report
- * "this branch doesn't exist" for a transient failure that has nothing to
- * do with whether the branches can merge.
- */
-export async function analyzeMerge(
-	repo: Repo,
-	sourceRef: string,
-	targetRef: string,
-): Promise<MergeAnalysis> {
-	try {
-		const sourceOid = await git.resolveRef({ ...repo, ref: sourceRef });
-		const targetOid = await git.resolveRef({ ...repo, ref: targetRef });
-
-		const isDescendant = await git.isDescendent({
-			...repo,
-			oid: sourceOid,
-			ancestor: targetOid,
-		});
-
-		return {
-			canMerge: true,
-			fastForward: isDescendant,
-			diverged: !isDescendant,
-		};
-	} catch (err) {
-		if ((err as { code?: string })?.code !== "NotFoundError") {
-			throw err;
-		}
-		return { canMerge: false, fastForward: false, diverged: false };
-	}
-}
 
 /**
  * Perform an object-level three-way merge.

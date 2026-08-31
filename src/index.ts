@@ -15,16 +15,9 @@ export {
 	GitMergeConflictError,
 } from "./errors.js";
 export {
-	analyzeMerge,
-	type MergeAnalysis,
 	type MergeOpts,
 	type MergeResult,
 	type Repo,
 	threeWayMerge,
 } from "./merge.js";
-export {
-	estimateRepoSize,
-	getRepoCache,
-	initBareRepo,
-	invalidateRepoCache,
-} from "./repo.js";
+export { getRepoCache, invalidateRepoCache } from "./repo.js";

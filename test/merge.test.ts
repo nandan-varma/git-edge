@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import git from "isomorphic-git";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzeMerge, threeWayMerge } from "../src/merge.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { threeWayMerge } from "../src/merge.js";
 
 let tmpDir: string;
 
@@ -102,104 +102,6 @@ async function makeCommit(
 
 	return commitOid;
 }
-
-describe("analyzeMerge", () => {
-	it("detects fast-forward", async () => {
-		const repo = await createBareRepo(path.join(tmpDir, "repo1"));
-		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
-
-		const featureOid = await makeCommit(
-			repo,
-			mainOid,
-			[{ path: "feature.txt", content: "new feature" }],
-			"Add feature",
-		);
-		await git.writeRef({
-			...repo,
-			ref: "refs/heads/feature",
-			value: featureOid,
-			force: true,
-		});
-
-		const analysis = await analyzeMerge(
-			repo,
-			"refs/heads/feature",
-			"refs/heads/main",
-		);
-		expect(analysis.canMerge).toBe(true);
-		expect(analysis.fastForward).toBe(true);
-		expect(analysis.diverged).toBe(false);
-	});
-
-	it("detects diverged branches", async () => {
-		const repo = await createBareRepo(path.join(tmpDir, "repo2"));
-		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
-
-		const featureOid = await makeCommit(
-			repo,
-			mainOid,
-			[{ path: "feature.txt", content: "feature content" }],
-			"Add feature",
-		);
-		await git.writeRef({
-			...repo,
-			ref: "refs/heads/feature",
-			value: featureOid,
-			force: true,
-		});
-
-		const mainOid2 = await makeCommit(
-			repo,
-			mainOid,
-			[{ path: "main.txt", content: "main content" }],
-			"Add main.txt",
-		);
-		await git.writeRef({
-			...repo,
-			ref: "refs/heads/main",
-			value: mainOid2,
-			force: true,
-		});
-
-		const analysis = await analyzeMerge(
-			repo,
-			"refs/heads/feature",
-			"refs/heads/main",
-		);
-		expect(analysis.canMerge).toBe(true);
-		expect(analysis.fastForward).toBe(false);
-		expect(analysis.diverged).toBe(true);
-	});
-
-	it("returns canMerge: false for missing ref", async () => {
-		const repo = await createBareRepo(path.join(tmpDir, "repo3"));
-		const analysis = await analyzeMerge(
-			repo,
-			"refs/heads/nonexistent",
-			"refs/heads/main",
-		);
-		expect(analysis.canMerge).toBe(false);
-	});
-
-	it("propagates a non-NotFoundError instead of reporting canMerge: false", async () => {
-		// Both refs resolve fine — the failure is in the ancestry walk
-		// (isDescendent), which can fail for reasons unrelated to either ref
-		// existing (a corrupted object, a storage read error) and shouldn't be
-		// reported to the caller as "one of these branches doesn't exist".
-		const repo = await createBareRepo(path.join(tmpDir, "repo3b"));
-		const isDescendentSpy = vi
-			.spyOn(git, "isDescendent")
-			.mockRejectedValue(new Error("object read failed"));
-
-		try {
-			await expect(
-				analyzeMerge(repo, "refs/heads/main", "refs/heads/main"),
-			).rejects.toThrow("object read failed");
-		} finally {
-			isDescendentSpy.mockRestore();
-		}
-	});
-});
 
 describe("threeWayMerge", () => {
 	it("fast-forwards when source is ahead", async () => {
