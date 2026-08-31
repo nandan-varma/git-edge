@@ -1,6 +1,6 @@
 {
   "name": "git-edge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "High-level edge-compatible git operations — parsed-object cache, object-level three-way merge, and repo management utilities. Composes with git-fs-s3.",
   "type": "module",
   "exports": {
@@ -51,7 +51,8 @@
     "node": ">=18"
   },
   "dependencies": {
-    "lru-cache": "^11.2.1"
+    "lru-cache": "^11.2.1",
+    "node-diff3": "^3.2.1"
   },
   "peerDependencies": {
     "git-fs-s3": ">=0.3.0",
@@ -59,8 +60,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.8",
-    "git-fs-s3": "^0.3.0",
     "@types/node": "^22.15.21",
+    "git-fs-s3": "^0.3.0",
     "isomorphic-git": "^1.27.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",

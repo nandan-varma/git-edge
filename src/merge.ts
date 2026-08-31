@@ -10,6 +10,7 @@
 
 import type { Repo } from "git-fs-s3/ops";
 import git from "isomorphic-git";
+import { merge as diff3Merge } from "node-diff3";
 import { GitMergeConflictError } from "./errors.js";
 
 export type { Repo };
@@ -154,81 +155,31 @@ async function writeTreeFromFlat(
 }
 
 /**
- * Simple byte-level 3-way merge on two Uint8Array contents.
+ * Line-level 3-way merge, via node-diff3's LCS-based diff3 algorithm — the
+ * same approach GNU diffutils' `diff3` (and git's own default merge driver)
+ * use. Conflicts are marked with git's standard `<<<<<<< ours` / `=======` /
+ * `>>>>>>> theirs` markers; `conflict` reports whether any were needed.
  *
- * This is a line-level merge using a basic diff algorithm.
- * For production quality, callers should use the `diff` library —
- * this is the fallback for edge environments where `diff` is not available.
+ * Previously a hand-rolled lockstep line-by-line walk (compare base[i] vs
+ * ours[i] vs theirs[i] at the same index across all three): correct only
+ * when no side ever inserts or deletes a line, since any such edit shifts
+ * every later index out of alignment — which the walk had no way to detect
+ * or recover from, so it could misreport unrelated later lines as
+ * conflicting, or — with no conflict raised — silently merge misaligned
+ * lines into corrupted content.
  */
 function mergeContents(
 	base: Uint8Array,
 	ours: Uint8Array,
 	theirs: Uint8Array,
-): Uint8Array {
-	const baseLines = decodeLines(base);
-	const oursLines = decodeLines(ours);
-	const theirsLines = decodeLines(theirs);
-
-	// If either side is identical to base, take the other
-	if (arraysEqual(baseLines, oursLines)) return theirs;
-	if (arraysEqual(baseLines, theirsLines)) return ours;
-	if (arraysEqual(oursLines, theirsLines)) return ours;
-
-	// Simple line-by-line merge: walk all three in lockstep
-	const result: string[] = [];
-	let bi = 0,
-		oi = 0,
-		ti = 0;
-
-	while (
-		bi < baseLines.length ||
-		oi < oursLines.length ||
-		ti < theirsLines.length
-	) {
-		const b = bi < baseLines.length ? baseLines[bi] : undefined;
-		const o = oi < oursLines.length ? oursLines[oi] : undefined;
-		const t = ti < theirsLines.length ? theirsLines[ti] : undefined;
-
-		if (b === o && b === t) {
-			// All three agree
-			result.push(b ?? "");
-			bi++;
-			oi++;
-			ti++;
-		} else if (b === o) {
-			// Only theirs changed — including the case where theirs ran out
-			// of lines here (t undefined, i.e. a deletion): `?? ""` matches
-			// what pushing `t` directly already did once joined below
-			// (Array.prototype.join renders an undefined element as ""),
-			// just without relying on `!` to silence the type checker
-			// about it.
-			result.push(t ?? "");
-			bi++;
-			oi++;
-			ti++;
-		} else if (b === t) {
-			// Only ours changed — symmetric to the theirs case above.
-			result.push(o ?? "");
-			bi++;
-			oi++;
-			ti++;
-		} else {
-			// Both changed — conflict: take ours + theirs separated by
-			// conflict markers. o or t can individually be undefined here
-			// too (one side ran out of lines while the other still
-			// conflicts with base) — same `?? ""` reasoning as above.
-			result.push(`<<<<<<< ours`);
-			result.push(o ?? "");
-			result.push(`=======`);
-			result.push(t ?? "");
-			result.push(`>>>>>>> theirs`);
-			bi++;
-			oi++;
-			ti++;
-		}
-	}
-
-	return encodeLines(result);
+): { content: Uint8Array; conflict: boolean } {
+	const { conflict, result } = diff3Merge(
+		decodeLines(ours),
+		decodeLines(base),
+		decodeLines(theirs),
+		{ label: { a: "ours", b: "theirs" } },
+	);
+	return { content: encodeLines(result), conflict };
 }
 
 function decodeLines(data: Uint8Array): string[] {
@@ -239,14 +190,6 @@ function decodeLines(data: Uint8Array): string[] {
 
 function encodeLines(lines: string[]): Uint8Array {
 	return new TextEncoder().encode(lines.join("\n"));
-}
-
-function arraysEqual(a: string[], b: string[]): boolean {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false;
-	}
-	return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,65 +336,41 @@ export async function threeWayMerge(
 						readBlob(repo, sourceOid),
 						readBlob(repo, targetOid),
 					]);
-					const merged = mergeContents(
+					const { content, conflict } = mergeContents(
 						new Uint8Array(),
 						sourceContent,
 						targetContent,
 					);
-					conflictingPaths.push(filepath);
-					const mergedOid = await writeBlob(repo, merged);
+					if (conflict) conflictingPaths.push(filepath);
+					const mergedOid = await writeBlob(repo, content);
 					resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
 				}
+			} else if (sourceOid === targetOid) {
+				// Both changed from base, but to identical content (a real,
+				// reachable case — e.g. both sides applied the same
+				// formatter) — oid equality already proves this, no blob
+				// read needed. (The reverse isn't checked: sourceOid or
+				// targetOid equaling baseOid was already ruled out by
+				// sourceChanged/targetChanged above, so source/target can
+				// never equal base content here — no byte comparison against
+				// base is reachable either.)
+				resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
 			} else {
-				// Both changed — attempt content merge
+				// Both changed from base, to different content — attempt a
+				// real line-level merge.
 				const [baseContent, sourceContent, targetContent] = await Promise.all([
 					readBlob(repo, baseOid),
 					readBlob(repo, sourceOid),
 					readBlob(repo, targetOid),
 				]);
-
-				if (
-					baseContent.length === sourceContent.length &&
-					baseContent.every((b, i) => b === sourceContent[i])
-				) {
-					// Source is identical to base — take target
-					resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
-				} else if (
-					baseContent.length === targetContent.length &&
-					baseContent.every((b, i) => b === targetContent[i])
-				) {
-					// Target is identical to base — take source
-					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-				} else if (
-					sourceContent.length === targetContent.length &&
-					sourceContent.every((b, i) => b === targetContent[i])
-				) {
-					// Source and target are identical — keep either
-					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-				} else {
-					// Both truly changed — attempt line-level merge
-					const merged = mergeContents(
-						baseContent,
-						sourceContent,
-						targetContent,
-					);
-
-					// Check for conflict markers
-					const mergedText = new TextDecoder().decode(merged);
-					if (
-						mergedText.includes("<<<<<<< ours") ||
-						mergedText.includes(">>>>>>> theirs")
-					) {
-						conflictingPaths.push(filepath);
-						// Still take the merged result with conflict markers
-						// so the caller can see what happened
-						const mergedOid = await writeBlob(repo, merged);
-						resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
-					} else {
-						const mergedOid = await writeBlob(repo, merged);
-						resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
-					}
-				}
+				const { content, conflict } = mergeContents(
+					baseContent,
+					sourceContent,
+					targetContent,
+				);
+				if (conflict) conflictingPaths.push(filepath);
+				const mergedOid = await writeBlob(repo, content);
+				resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
 			}
 		} else {
 			// Deleted in both — no-op

@@ -279,6 +279,86 @@ describe("threeWayMerge", () => {
 		expect(new TextDecoder().decode(blob)).toBe("same content");
 	});
 
+	// Regression coverage for the previous hand-rolled lockstep merge: it
+	// compared base[i]/ours[i]/theirs[i] at the same index across all three,
+	// with no way to realign after an insertion shifted later indices. An
+	// insertion on one side, followed by an unrelated edit further down on
+	// the other side, used to misreport a conflict where none exists (the
+	// edits don't overlap) and lose/garble content in the process. A real
+	// diff3 merge realigns on content, not position, so this must produce a
+	// clean merge with both changes intact.
+	it("merges an insertion on one side with an unrelated edit further down on the other, with no false conflict", async () => {
+		const repo = await createBareRepo(path.join(tmpDir, "repo10"));
+		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
+
+		const baseContent = "line1\nline2\nline3\nline4\nline5";
+		const baseCommitOid = await makeCommit(
+			repo,
+			mainOid,
+			[{ path: "file.txt", content: baseContent }],
+			"Add file.txt",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/main",
+			value: baseCommitOid,
+			force: true,
+		});
+
+		// feature: inserts a line right after line1, doesn't touch line5.
+		const featureOid = await makeCommit(
+			repo,
+			baseCommitOid,
+			[
+				{
+					path: "file.txt",
+					content: "line1\nNEW\nline2\nline3\nline4\nline5",
+				},
+			],
+			"Insert NEW after line1",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/feature",
+			value: featureOid,
+			force: true,
+		});
+
+		// main: only changes line5, doesn't touch the top of the file.
+		const mainOid2 = await makeCommit(
+			repo,
+			baseCommitOid,
+			[
+				{
+					path: "file.txt",
+					content: "line1\nline2\nline3\nline4\nline5-changed",
+				},
+			],
+			"Change line5",
+		);
+		await git.writeRef({
+			...repo,
+			ref: "refs/heads/main",
+			value: mainOid2,
+			force: true,
+		});
+
+		const result = await threeWayMerge(
+			repo,
+			"refs/heads/feature",
+			"refs/heads/main",
+		);
+		const commit = await git.readCommit({ ...repo, oid: result.commitOid });
+		const mergedTree = await git.readTree({ ...repo, oid: commit.commit.tree });
+		const entry = mergedTree.tree.find((e) => e.path === "file.txt");
+		if (!entry) throw new Error("file.txt missing from merged tree");
+
+		const { blob } = await git.readBlob({ ...repo, oid: entry.oid });
+		expect(new TextDecoder().decode(blob)).toBe(
+			"line1\nNEW\nline2\nline3\nline4\nline5-changed",
+		);
+	});
+
 	it("reports a conflict when both sides independently add different content at the same path", async () => {
 		const repo = await createBareRepo(path.join(tmpDir, "repo9"));
 		const mainOid = await git.resolveRef({ ...repo, ref: "refs/heads/main" });
