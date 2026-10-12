@@ -17,7 +17,7 @@ Separately, isomorphic-git re-parses a packfile index from scratch on every `rea
 ## Install
 
 ```bash
-npm install git-edge isomorphic-git
+npm install git-edge git-fs-s3 isomorphic-git   # ESM only, Node.js 22+
 ```
 
 `git-fs-s3` is an optional peer — install it if you need an S3/R2-backed `fs` to pass in; git-edge itself works with any isomorphic-git-compatible `fs` (including plain `node:fs`).
