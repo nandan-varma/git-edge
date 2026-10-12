@@ -41,4 +41,12 @@ describe("createParsedObjectCache", () => {
 		await new Promise((r) => setTimeout(r, 100));
 		expect(cache.get("key1")).toBeNull();
 	});
+
+	it("counts byte arrays by byteLength when bounding size", () => {
+		const cache = createParsedObjectCache({ maxSize: 100 });
+		cache.set("a", { data: new Uint8Array(60) });
+		cache.set("b", { data: new Uint8Array(60) });
+		expect(cache.get("a")).toBeNull();
+		expect(cache.get("b")).not.toBeNull();
+	});
 });
