@@ -9,7 +9,6 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'git-edge',
-			tagline: 'Object-level three-way git merges — no worktree, no disk.',
 			description:
 				'High-level edge-compatible git operations on top of isomorphic-git: a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and repo-cache/init utilities.',
 			social: [
