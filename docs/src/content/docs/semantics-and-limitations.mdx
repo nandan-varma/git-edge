@@ -5,22 +5,19 @@ description: What threeWayMerge does and doesn't guarantee, and where the other 
 
 import { Aside } from '@astrojs/starlight/components';
 
-## Content merge is line-level, from scratch
+## Content merge is line-level
 
-`threeWayMerge`'s content merge (used only for paths both sides changed from
-the merge base) is a hand-written line-level three-way merge — not
-`diff3`/libgit2, and not a general diff algorithm. Most changes (added,
-deleted, changed on a single side) never reach it at all; see
-[Three-way merge](/git-edge/guides/three-way-merge/) for the full decision
-tree.
+`threeWayMerge`'s content merge (used only for files both sides changed from
+the merge base) is node-diff3's line-level diff3 — the same algorithm git's
+default merge driver uses, but with no rename detection and no recursive
+merge of criss-cross histories (the first merge base `git.findMergeBase`
+returns is used). See [Three-way merge](/git-edge/guides/three-way-merge/)
+for the full decision tree.
 
-## No binary-file merge support
+## Binary files conflict instead of merging
 
-Conflict markers are written as text into whatever bytes the paths held —
-binary content produces a nonsensical merged blob, not a clean conflict
-signal. Detect binary paths upstream (extension allowlist, a content sniff)
-if that matters for your use case, and route those paths around
-`threeWayMerge`.
+A file with a NUL byte in any of the three versions is never line-merged —
+both sides changing it differently is reported as a conflict.
 
 ## `estimateRepoSize` and the parsed-object cache are independent utilities
 

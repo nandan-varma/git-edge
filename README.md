@@ -6,7 +6,7 @@
 
 High-level edge-compatible git operations on top of [isomorphic-git](https://isomorphic-git.org): a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and per-repo packfile-cache management. No `node:*` imports anywhere in `src/` — runs on Cloudflare Workers, Vercel Edge, Deno Deploy, and Node.
 
-Extracted from the same production git-hosting service as [`git-fs-s3`](https://www.npmjs.com/package/git-fs-s3) — the two compose (see below) but neither imports the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
+Extracted from the same production git-hosting service as [`git-fs-s3`](https://www.npmjs.com/package/git-fs-s3) — the two compose (see below): both work on isomorphic-git's `{ fs, gitdir, cache? }` shape, and `threeWayMerge` stores its objects through git-fs-s3's `withPackedWrites`.
 
 ## Why
 
@@ -20,7 +20,7 @@ Separately, isomorphic-git re-parses a packfile index from scratch on every `rea
 npm install git-edge git-fs-s3 isomorphic-git   # ESM only, Node.js 22+
 ```
 
-`git-fs-s3` is an optional peer — install it if you need an S3/R2-backed `fs` to pass in; git-edge itself works with any isomorphic-git-compatible `fs` (including plain `node:fs`).
+`git-fs-s3` (≥ 0.8) is a required peer — `threeWayMerge` uses its `withPackedWrites`. git-edge works with any isomorphic-git-compatible `fs` (including plain `node:fs`), not just git-fs-s3's.
 
 ## Quick start
 
@@ -67,9 +67,11 @@ await threeWayMerge(repo, "feature", "main");
 
 Merges `sourceRef` into `targetRef` at the object level — no worktree.
 
-- Source is an ancestor of target, or vice versa → fast-forward: just moves `targetRef`, no merge commit.
-- Otherwise, flattens both trees (deep, recursive) against their merge base, takes non-conflicting changes automatically, and content-merges paths both sides touched with a line-level three-way merge.
-- Throws `GitMergeConflictError` (with `conflictingPaths: string[]`) if any file has unresolved conflicts. The conflict markers (`<<<<<<< ours` / `=======` / `>>>>>>> theirs`) are still written to a blob and included in the (unreached) result tree — a caller that wants "write the conflicted state so a human can resolve it" can catch the error, note the paths, and re-run its own resolution flow rather than losing that information.
+- Target already contains source (same commit, or source is an ancestor) → nothing to do: returns target's oid, no ref moves.
+- Source is a descendant of target → fast-forward: just moves `targetRef`, no merge commit.
+- Otherwise, merges the trees recursively against their merge base: a change only one side made wins (deletions and mode changes included), subtrees only one side touched are taken without being read, and text files both sides changed are content-merged with diff3. Binary files, symlinks, submodules, modify/delete and file/directory clashes that both sides touched are conflicts. Unrelated histories throw `GitEdgeError`.
+- Throws `GitMergeConflictError` (with sorted `conflictingPaths: string[]`) if anything conflicts — before writing anything.
+- Only `targetRef` moves (never the branch `HEAD` names); new objects are stored as one pack via git-fs-s3's `withPackedWrites`, before the ref.
 - `opts.message`, `opts.authorName`/`opts.authorEmail` (default `"Git Edge" <git-edge@local>`).
 
 Returns `{ commitOid }` — the new merge commit, or the fast-forwarded `targetRef`'s new oid.
@@ -106,7 +108,7 @@ Per-repo isomorphic-git packfile `cache` object management, keyed `` `${ownerKey
 ## Semantics & limitations
 
 - `threeWayMerge`'s content merge (for paths both sides changed from the merge base — most changes are added/deleted/single-side-modified and resolve without touching it at all) uses [`node-diff3`](https://www.npmjs.com/package/node-diff3)'s LCS-based diff3 algorithm, the same approach GNU diffutils' `diff3` and git's own default merge driver use.
-- No binary-file merge support — conflict markers are written as text into whatever bytes the paths held; binary content will produce a nonsensical merged blob, not a clean conflict signal. Detect binary paths upstream if that matters for your use case.
+- Binary files (a NUL byte in any version) are never line-merged; both sides changing one is a conflict. No rename detection; criss-cross histories use the first merge base.
 - The parsed-object cache and `getRepoCache`/`invalidateRepoCache` are general-purpose helpers, not required by `threeWayMerge` — use whichever pieces you need independently.
 
 ## License

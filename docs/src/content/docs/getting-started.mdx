@@ -26,10 +26,10 @@ import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components';
 </Tabs>
 
 <Aside type="note">
-	`isomorphic-git` is a peer dependency — install it yourself.
-	`git-fs-s3` is an optional peer on top of that: install it if
-	you need an S3/R2-backed `fs` to pass in. git-edge itself works with any
-	isomorphic-git-compatible `fs`, including plain `node:fs`.
+	`isomorphic-git` and `git-fs-s3` (≥ 0.8) are peer dependencies — install
+	them yourself; `threeWayMerge` stores its objects through git-fs-s3's
+	`withPackedWrites`. git-edge works with any isomorphic-git-compatible
+	`fs`, including plain `node:fs`, not only git-fs-s3's.
 </Aside>
 
 ## Quick start

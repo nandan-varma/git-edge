@@ -2,22 +2,18 @@
  * Object-level three-way merge for isomorphic-git.
  *
  * Merges two commits by walking their trees directly — no worktree, no disk.
- * Returns the merged commit OID, or throws MergeConflictError with the list of
- * conflicting file paths.
+ * Returns the merged commit OID, or throws GitMergeConflictError with the
+ * list of conflicting paths.
  *
  * Edge-compatible: no node: imports, uses only isomorphic-git object APIs.
  */
 
-import type { Repo } from "git-fs-s3/ops";
+import { type Repo, withPackedWrites } from "git-fs-s3/ops";
 import git from "isomorphic-git";
 import { merge as diff3Merge } from "node-diff3";
-import { GitMergeConflictError } from "./errors.js";
+import { GitEdgeError, GitMergeConflictError } from "./errors.js";
 
 export type { Repo };
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /** Options for threeWayMerge. */
 export interface MergeOpts {
@@ -29,146 +25,48 @@ export interface MergeOpts {
 	authorEmail?: string;
 }
 
-/** Result of a successful merge. */
+/** Result of a successful merge (or of a no-op: target already up to date). */
 export interface MergeResult {
 	commitOid: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function defaultAuthor() {
-	return {
-		name: "Git Edge",
-		email: "git-edge@local",
-		timestamp: Math.floor(Date.now() / 1000),
-		timezoneOffset: 0,
-	};
+interface Entry {
+	mode: string;
+	oid: string;
+	type: "blob" | "tree" | "commit";
 }
 
-/** Recursively flatten a tree into path → oid entries. */
-async function flattenTreeDeep(
+const isTree = (entry: Entry | undefined): entry is Entry =>
+	entry?.type === "tree";
+const isFile = (entry: Entry | undefined): entry is Entry =>
+	entry?.type === "blob";
+
+/** Same tree entry: both absent, or identical oid and mode. */
+function same(a: Entry | undefined, b: Entry | undefined): boolean {
+	if (a === undefined || b === undefined) return a === b;
+	return a.oid === b.oid && a.mode === b.mode;
+}
+
+async function readEntries(
 	repo: Repo,
-	treeOid: string,
-	prefix: string,
-): Promise<Map<string, string>> {
-	const map = new Map<string, string>();
-	const entries = (await git.readTree({ ...repo, oid: treeOid })).tree;
-	await Promise.all(
-		entries.map(async (entry) => {
-			const fullPath = prefix ? `${prefix}/${entry.path}` : entry.path;
-			if (entry.type === "tree") {
-				const sub = await flattenTreeDeep(repo, entry.oid, fullPath);
-				for (const [k, v] of sub) map.set(k, v);
-			} else {
-				map.set(fullPath, entry.oid);
-			}
-		}),
-	);
-	return map;
+	treeOid: string | undefined,
+): Promise<Map<string, Entry>> {
+	if (treeOid === undefined) return new Map();
+	const { tree } = await git.readTree({ ...repo, oid: treeOid });
+	return new Map(tree.map((entry) => [entry.path, entry]));
 }
 
-/** Read a blob and return it as a Uint8Array. */
 async function readBlob(repo: Repo, oid: string): Promise<Uint8Array> {
 	const { blob } = await git.readBlob({ ...repo, oid });
 	return blob;
 }
 
-/** Write a blob into the object store. */
-async function writeBlob(repo: Repo, content: Uint8Array): Promise<string> {
-	return git.writeBlob({ ...repo, blob: content });
-}
-
-/** Write a tree object from a flat path→oid map. */
-async function writeTreeObject(
-	repo: Repo,
-	entries: Array<{
-		path: string;
-		oid: string;
-		mode: string;
-		type: "blob" | "tree";
-	}>,
-): Promise<string> {
-	return git.writeObject({
-		...repo,
-		type: "tree",
-		object: entries.map((e) => ({
-			path: e.path,
-			oid: e.oid,
-			mode: e.mode,
-			type: e.type,
-		})),
-		format: "parsed",
-	});
-}
-
-/**
- * Write a tree from a flat path→{oid,mode} map by recursively building
- * intermediate trees for subdirectories.
- */
-async function writeTreeFromFlat(
-	repo: Repo,
-	flat: Map<string, { oid: string; mode: string }>,
-): Promise<string> {
-	// Group entries by first path segment
-	const root = new Map<string, { oid: string; mode: string }>();
-	const children = new Map<
-		string,
-		Map<string, { oid: string; mode: string }>
-	>();
-
-	for (const [p, v] of flat) {
-		const slash = p.indexOf("/");
-		if (slash === -1) {
-			root.set(p, v);
-		} else {
-			const dir = p.slice(0, slash);
-			const rest = p.slice(slash + 1);
-			if (!children.has(dir)) children.set(dir, new Map());
-			children.get(dir)?.set(rest, v);
-		}
-	}
-
-	const treeEntries: Array<{
-		path: string;
-		oid: string;
-		mode: string;
-		type: "blob" | "tree";
-	}> = [];
-
-	for (const [name, { oid, mode }] of root) {
-		treeEntries.push({ path: name, oid, mode, type: "blob" });
-	}
-
-	for (const [dirName, subMap] of children) {
-		const subOid = await writeTreeFromFlat(repo, subMap);
-		treeEntries.push({
-			path: dirName,
-			oid: subOid,
-			mode: "040000",
-			type: "tree",
-		});
-	}
-
-	return writeTreeObject(repo, treeEntries);
-}
-
 /**
  * Line-level 3-way merge, via node-diff3's LCS-based diff3 algorithm — the
  * same approach GNU diffutils' `diff3` (and git's own default merge driver)
- * use. Conflicts are marked with git's standard `<<<<<<< ours` / `=======` /
- * `>>>>>>> theirs` markers; `conflict` reports whether any were needed.
- *
- * Previously a hand-rolled lockstep line-by-line walk (compare base[i] vs
- * ours[i] vs theirs[i] at the same index across all three): correct only
- * when no side ever inserts or deletes a line, since any such edit shifts
- * every later index out of alignment — which the walk had no way to detect
- * or recover from, so it could misreport unrelated later lines as
- * conflicting, or — with no conflict raised — silently merge misaligned
- * lines into corrupted content.
+ * use. `conflict` reports whether any hunk couldn't be merged.
  */
-function mergeContents(
+function mergeText(
 	base: Uint8Array,
 	ours: Uint8Array,
 	theirs: Uint8Array,
@@ -179,31 +77,150 @@ function mergeContents(
 		decodeLines(theirs),
 		{ label: { a: "ours", b: "theirs" } },
 	);
-	return { content: encodeLines(result), conflict };
+	return { content: new TextEncoder().encode(result.join("\n")), conflict };
 }
 
 function decodeLines(data: Uint8Array): string[] {
 	const text = new TextDecoder().decode(data);
-	if (text === "") return [];
-	return text.split("\n");
+	return text === "" ? [] : text.split("\n");
 }
 
-function encodeLines(lines: string[]): Uint8Array {
-	return new TextEncoder().encode(lines.join("\n"));
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+/** Git's own heuristic: a NUL byte means binary, which is never line-merged. */
+const isBinary = (data: Uint8Array) => data.includes(0);
 
 /**
- * Perform an object-level three-way merge.
+ * The merged mode when both sides changed a file: a mode only one side
+ * changed wins; both changing it differently is a conflict (null).
+ */
+function mergeMode(
+	base: Entry | undefined,
+	ours: Entry,
+	theirs: Entry,
+): string | null {
+	if (ours.mode === theirs.mode) return ours.mode;
+	if (base?.mode === ours.mode) return theirs.mode;
+	if (base?.mode === theirs.mode) return ours.mode;
+	return null;
+}
+
+/**
+ * Merge one path whose two sides both changed it differently. Returns the
+ * merged entry, or null for a conflict (pushed onto `conflicts`).
+ */
+async function mergeChangedEntry(
+	repo: Repo,
+	path: string,
+	base: Entry | undefined,
+	ours: Entry | undefined,
+	theirs: Entry | undefined,
+	conflicts: string[],
+): Promise<Entry | null> {
+	if (isTree(ours) && isTree(theirs)) {
+		const oid = await mergeTrees(
+			repo,
+			path,
+			isTree(base) ? base.oid : undefined,
+			ours.oid,
+			theirs.oid,
+			conflicts,
+		);
+		return oid === null ? null : { mode: "040000", oid, type: "tree" };
+	}
+	// Anything else — modify/delete, file/directory, submodule changes — is a
+	// conflict unless both sides are regular files with mergeable content.
+	if (!isFile(ours) || !isFile(theirs) || ours.mode === "120000") {
+		conflicts.push(path);
+		return null;
+	}
+	const mode = mergeMode(base, ours, theirs);
+	if (mode === null) {
+		conflicts.push(path);
+		return null;
+	}
+	if (ours.oid === theirs.oid) return { mode, oid: ours.oid, type: "blob" };
+	const [baseContent, oursContent, theirsContent] = await Promise.all([
+		isFile(base) ? readBlob(repo, base.oid) : new Uint8Array(),
+		readBlob(repo, ours.oid),
+		readBlob(repo, theirs.oid),
+	]);
+	if (
+		isBinary(baseContent) ||
+		isBinary(oursContent) ||
+		isBinary(theirsContent)
+	) {
+		conflicts.push(path);
+		return null;
+	}
+	const { content, conflict } = mergeText(
+		baseContent,
+		oursContent,
+		theirsContent,
+	);
+	if (conflict) {
+		conflicts.push(path);
+		return null;
+	}
+	const oid = await git.writeBlob({ ...repo, blob: content });
+	return { mode, oid, type: "blob" };
+}
+
+/**
+ * Three-way merge of trees, recursing only into subtrees both sides changed
+ * — an untouched or one-sided subtree is taken by oid without being read.
+ * Returns the merged tree's oid, or null when any path conflicted.
+ */
+async function mergeTrees(
+	repo: Repo,
+	prefix: string,
+	baseOid: string | undefined,
+	oursOid: string,
+	theirsOid: string,
+	conflicts: string[],
+): Promise<string | null> {
+	const [base, ours, theirs] = await Promise.all([
+		readEntries(repo, baseOid),
+		readEntries(repo, oursOid),
+		readEntries(repo, theirsOid),
+	]);
+	const names = new Set([...base.keys(), ...ours.keys(), ...theirs.keys()]);
+	const merged: Array<Entry & { path: string }> = [];
+	const before = conflicts.length;
+
+	await Promise.all(
+		[...names].map(async (name) => {
+			const path = prefix ? `${prefix}/${name}` : name;
+			const b = base.get(name);
+			const o = ours.get(name);
+			const t = theirs.get(name);
+			let result: Entry | undefined | null;
+			if (same(o, t)) result = o;
+			else if (same(b, o)) result = t;
+			else if (same(b, t)) result = o;
+			else result = await mergeChangedEntry(repo, path, b, o, t, conflicts);
+			if (result) merged.push({ ...result, path: name });
+		}),
+	);
+
+	if (conflicts.length > before) return null;
+	return git.writeTree({ ...repo, tree: merged });
+}
+
+/**
+ * Merge `sourceRef` into `targetRef`, entirely at the object level.
  *
- * - If source is an ancestor of target (fast-forward), moves target ref to source.
- * - If target is an ancestor of source (reverse FF), moves target ref to source.
- * - Otherwise, performs a true 3-way merge at the tree level.
+ * - Target already contains source (same commit, or source is an ancestor):
+ *   nothing to do — returns the target's commit, refs untouched.
+ * - Source contains target: fast-forward the target ref to source.
+ * - Otherwise: a real three-way merge against the merge base. Paths only one
+ *   side changed take that side (deletions included); paths both changed are
+ *   merged — subtrees recursively, text files line by line (diff3), modes
+ *   kept unless both sides changed them differently. Binary files, symlinks,
+ *   submodules, modify/delete and file/directory clashes that both sides
+ *   touched are conflicts. Any conflict throws `GitMergeConflictError`
+ *   without writing anything.
  *
- * Throws `GitMergeConflictError` if the merge has unresolvable conflicts.
+ * New objects are stored as one pack, written before the target ref moves.
+ * Serialize concurrent writers to the same repository externally.
  */
 export async function threeWayMerge(
 	repo: Repo,
@@ -216,17 +233,16 @@ export async function threeWayMerge(
 		git.resolveRef({ ...repo, ref: targetRef }),
 	]);
 
-	if (sourceOid === targetOid) {
-		return { commitOid: sourceOid };
+	if (
+		sourceOid === targetOid ||
+		(await git.isDescendent({ ...repo, oid: targetOid, ancestor: sourceOid }))
+	) {
+		return { commitOid: targetOid };
 	}
 
-	// Fast-forward: source is ahead of target
-	const isSourceAhead = await git.isDescendent({
-		...repo,
-		oid: sourceOid,
-		ancestor: targetOid,
-	});
-	if (isSourceAhead) {
+	if (
+		await git.isDescendent({ ...repo, oid: sourceOid, ancestor: targetOid })
+	) {
 		await git.writeRef({
 			...repo,
 			ref: targetRef,
@@ -236,182 +252,61 @@ export async function threeWayMerge(
 		return { commitOid: sourceOid };
 	}
 
-	// Reverse fast-forward: target is ahead of source
-	const isTargetAhead = await git.isDescendent({
-		...repo,
-		oid: targetOid,
-		ancestor: sourceOid,
-	});
-	if (isTargetAhead) {
-		await git.writeRef({
-			...repo,
-			ref: targetRef,
-			value: sourceOid,
-			force: true,
-		});
-		return { commitOid: sourceOid };
-	}
-
-	// True 3-way merge
 	const baseOids = await git.findMergeBase({
 		...repo,
 		oids: [sourceOid, targetOid],
 	});
-
-	if (!baseOids || baseOids.length === 0) {
-		throw new Error("No merge base found between source and target");
+	const baseOid = baseOids?.[0];
+	if (baseOid === undefined) {
+		throw new GitEdgeError(
+			`Refusing to merge unrelated histories (${sourceRef} and ${targetRef} share no commit)`,
+		);
 	}
 
-	const baseOid = baseOids[0];
-
-	// Read commit objects to get their trees
 	const [baseCommit, sourceCommit, targetCommit] = await Promise.all([
 		git.readCommit({ ...repo, oid: baseOid }),
 		git.readCommit({ ...repo, oid: sourceOid }),
 		git.readCommit({ ...repo, oid: targetOid }),
 	]);
 
-	const baseTreeOid = baseCommit.commit.tree;
-	const sourceTreeOid = sourceCommit.commit.tree;
-	const targetTreeOid = targetCommit.commit.tree;
-
-	// Flatten all three trees
-	const [baseMap, sourceMap, targetMap] = await Promise.all([
-		flattenTreeDeep(repo, baseTreeOid, ""),
-		flattenTreeDeep(repo, sourceTreeOid, ""),
-		flattenTreeDeep(repo, targetTreeOid, ""),
-	]);
-
-	// Collect all unique paths
-	const allPaths = new Set([
-		...baseMap.keys(),
-		...sourceMap.keys(),
-		...targetMap.keys(),
-	]);
-
-	const resultEntries = new Map<string, { oid: string; mode: string }>();
-	const conflictingPaths: string[] = [];
-
-	for (const filepath of allPaths) {
-		const baseOid = baseMap.get(filepath);
-		const sourceOid = sourceMap.get(filepath);
-		const targetOid = targetMap.get(filepath);
-
-		if (sourceOid !== undefined && targetOid === undefined) {
-			// Added in source, not in target — take source
-			resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-		} else if (sourceOid === undefined && targetOid !== undefined) {
-			// Deleted in source, exists in target — keep target
-			resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
-		} else if (sourceOid !== undefined && targetOid !== undefined) {
-			// Exists in both — check if both changed from base. A path with
-			// no base entry (both sides independently added it — no common
-			// ancestor content to diff against) is its own case below,
-			// compared directly against each other instead of a base blob
-			// that doesn't exist.
-			const sourceChanged = sourceOid !== baseOid;
-			const targetChanged = targetOid !== baseOid;
-
-			if (!sourceChanged && !targetChanged) {
-				// Neither changed — keep as-is
-				resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
-			} else if (!sourceChanged) {
-				// Only target changed — take target
-				resultEntries.set(filepath, { oid: targetOid, mode: "100644" });
-			} else if (!targetChanged) {
-				// Only source changed — take source
-				resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-			} else if (baseOid === undefined) {
-				// Both sides independently added this path. Same oid means
-				// identical content on both sides — no real conflict. Different
-				// oids is a genuine conflict with no common ancestor to 3-way
-				// merge against, so run the line-level merge against an empty
-				// "base" — mergeContents already treats an exhausted side as
-				// producing full conflict markers around whatever content the
-				// other side has.
-				if (sourceOid === targetOid) {
-					resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-				} else {
-					const [sourceContent, targetContent] = await Promise.all([
-						readBlob(repo, sourceOid),
-						readBlob(repo, targetOid),
-					]);
-					const { content, conflict } = mergeContents(
-						new Uint8Array(),
-						sourceContent,
-						targetContent,
-					);
-					if (conflict) conflictingPaths.push(filepath);
-					const mergedOid = await writeBlob(repo, content);
-					resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
-				}
-			} else if (sourceOid === targetOid) {
-				// Both changed from base, but to identical content (a real,
-				// reachable case — e.g. both sides applied the same
-				// formatter) — oid equality already proves this, no blob
-				// read needed. (The reverse isn't checked: sourceOid or
-				// targetOid equaling baseOid was already ruled out by
-				// sourceChanged/targetChanged above, so source/target can
-				// never equal base content here — no byte comparison against
-				// base is reachable either.)
-				resultEntries.set(filepath, { oid: sourceOid, mode: "100644" });
-			} else {
-				// Both changed from base, to different content — attempt a
-				// real line-level merge.
-				const [baseContent, sourceContent, targetContent] = await Promise.all([
-					readBlob(repo, baseOid),
-					readBlob(repo, sourceOid),
-					readBlob(repo, targetOid),
-				]);
-				const { content, conflict } = mergeContents(
-					baseContent,
-					sourceContent,
-					targetContent,
-				);
-				if (conflict) conflictingPaths.push(filepath);
-				const mergedOid = await writeBlob(repo, content);
-				resultEntries.set(filepath, { oid: mergedOid, mode: "100644" });
-			}
-		} else {
-			// Deleted in both — no-op
+	return withPackedWrites(repo, async (packed) => {
+		const conflicts: string[] = [];
+		const treeOid = await mergeTrees(
+			packed,
+			"",
+			baseCommit.commit.tree,
+			targetCommit.commit.tree,
+			sourceCommit.commit.tree,
+			conflicts,
+		);
+		if (treeOid === null) {
+			throw new GitMergeConflictError(conflicts.sort());
 		}
-	}
 
-	if (conflictingPaths.length > 0) {
-		throw new GitMergeConflictError(conflictingPaths);
-	}
-
-	// Build the result tree
-	const resultTreeOid = await writeTreeFromFlat(repo, resultEntries);
-
-	// Create the merge commit
-	const author = opts?.authorName
-		? {
-				name: opts.authorName,
-				email: opts.authorEmail || "git-edge@local",
-				timestamp: Math.floor(Date.now() / 1000),
-				timezoneOffset: 0,
-			}
-		: defaultAuthor();
-
-	const message = opts?.message || `Merge ${sourceRef} into ${targetRef}`;
-
-	const mergeCommitOid = await git.commit({
-		...repo,
-		message,
-		tree: resultTreeOid,
-		parent: [targetOid, sourceOid],
-		author,
-		committer: author,
+		const author = {
+			name: opts?.authorName || "Git Edge",
+			email: opts?.authorEmail || "git-edge@local",
+			timestamp: Math.floor(Date.now() / 1000),
+			timezoneOffset: 0,
+		};
+		// writeCommit, not git.commit: git.commit also advances whatever
+		// branch HEAD names, which may not be the target.
+		const commitOid = await git.writeCommit({
+			...packed,
+			commit: {
+				message: opts?.message || `Merge ${sourceRef} into ${targetRef}`,
+				tree: treeOid,
+				parent: [targetOid, sourceOid],
+				author,
+				committer: author,
+			},
+		});
+		await git.writeRef({
+			...packed,
+			ref: targetRef,
+			value: commitOid,
+			force: true,
+		});
+		return { commitOid };
 	});
-
-	// Update the target ref
-	await git.writeRef({
-		...repo,
-		ref: targetRef,
-		value: mergeCommitOid,
-		force: true,
-	});
-
-	return { commitOid: mergeCommitOid };
 }

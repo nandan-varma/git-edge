@@ -26,8 +26,9 @@ Lambda, Worker, or Edge function that only ever sees `{ fs, gitdir }`.
 
 Extracted from the same production git-hosting service as
 [`git-fs-s3`](https://github.com/nandan-varma/git-fs-s3) — the two
-compose (see [Getting started](/git-edge/getting-started/)) but neither imports
-the other; both just agree on isomorphic-git's `{ fs, gitdir, cache? }` shape.
+compose (see [Getting started](/git-edge/getting-started/)): both work on
+isomorphic-git's `{ fs, gitdir, cache? }` shape, and `threeWayMerge` stores
+its objects through git-fs-s3's `withPackedWrites`.
 
 ## What's in the package
 
