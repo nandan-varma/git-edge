@@ -109,6 +109,7 @@ Per-repo isomorphic-git packfile `cache` object management, keyed `` `${ownerKey
 
 - `threeWayMerge`'s content merge (for paths both sides changed from the merge base — most changes are added/deleted/single-side-modified and resolve without touching it at all) uses [`node-diff3`](https://www.npmjs.com/package/node-diff3)'s LCS-based diff3 algorithm, the same approach GNU diffutils' `diff3` and git's own default merge driver use.
 - Binary files (a NUL byte in any version) are never line-merged; both sides changing one is a conflict. No rename detection; criss-cross histories use the first merge base.
+- Object reads and writes are bounded (`MAX_CONCURRENT_READS = 16` in-flight per merge, held for each individual `readTree`/`readBlob`/`writeBlob`/`writeTree` call rather than across the recursive subtree merge). A directory's entries are merged concurrently, so an unbounded fan-out over a repo with tens of thousands of entries in one directory would otherwise issue that many simultaneous store requests from a single merge, with each `readBlob` holding a whole blob in memory.
 - The parsed-object cache and `getRepoCache`/`invalidateRepoCache` are general-purpose helpers, not required by `threeWayMerge` — use whichever pieces you need independently.
 
 ## License
