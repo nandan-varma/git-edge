@@ -93,7 +93,7 @@ const hit = cache.get<ParsedCommit>(`${oid}:commit`);
 cache.invalidatePrefix(gitdir); // drop everything under a repo after a rewrite
 ```
 
-- `options.maxSize` — byte budget, estimated via `JSON.stringify(value).length` (default 256 MiB).
+- `options.maxSize` — approximate byte budget; each entry is sized by walking its value, without serialization (default 256 MiB).
 - `options.ttl` — entry TTL in ms (default 1 h).
 - `.invalidatePrefix(prefix)` — drop every key starting with `prefix`; O(cache size), fine for occasional invalidation, not a hot-path operation.
 
@@ -111,6 +111,10 @@ Per-repo isomorphic-git packfile `cache` object management, keyed `` `${ownerKey
 - Binary files (a NUL byte in any version) are never line-merged; both sides changing one is a conflict. No rename detection; criss-cross histories use the first merge base.
 - Object reads and writes are bounded (`MAX_CONCURRENT_READS = 16` in-flight per merge, held for each individual `readTree`/`readBlob`/`writeBlob`/`writeTree` call rather than across the recursive subtree merge). A directory's entries are merged concurrently, so an unbounded fan-out over a repo with tens of thousands of entries in one directory would otherwise issue that many simultaneous store requests from a single merge, with each `readBlob` holding a whole blob in memory.
 - The parsed-object cache and `getRepoCache`/`invalidateRepoCache` are general-purpose helpers, not required by `threeWayMerge` — use whichever pieces you need independently.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## License
 

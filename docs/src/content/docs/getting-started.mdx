@@ -75,13 +75,14 @@ Same call, backed by object storage instead of local disk — this is the pairin
 git-edge was extracted alongside.
 
 ```typescript
+import git from 'isomorphic-git';
 import { createGitFs, MemoryObjectStore } from 'git-fs-s3';
-import { threeWayMerge, initBareRepo } from 'git-edge';
+import { threeWayMerge } from 'git-edge';
 
 const fs = createGitFs(new MemoryObjectStore());
 const repo = { fs, gitdir: '/repo.git', cache: {} };
 
-await initBareRepo(repo);
+await git.init({ ...repo, dir: repo.gitdir, bare: true });
 // ... commits land on "feature" and "main" via git-fs-s3's fs ...
 await threeWayMerge(repo, 'feature', 'main');
 ```
@@ -94,10 +95,8 @@ await threeWayMerge(repo, 'feature', 'main');
 
 ## Next steps
 
-- Want to know *why* a merge will conflict before attempting one? See
-  [Analyzing a merge](/git-edge/guides/analyze-merge/).
 - Reading the same repo's objects repeatedly (a commit list, a rendered
   diff)? See [the parsed-object cache guide](/git-edge/guides/parsed-object-cache/).
 - Running many operations against the same repo in one process? See
-  [Repo cache & init](/git-edge/guides/repo-cache-and-init/) for
+  [Repo cache](/git-edge/guides/repo-cache/) for
   isomorphic-git's own packfile cache.

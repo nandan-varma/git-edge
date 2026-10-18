@@ -1,0 +1,41 @@
+---
+title: Repo cache
+description: getRepoCache/invalidateRepoCache for isomorphic-git's per-repo packfile cache.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## `getRepoCache(ownerKey, repoName)` / `invalidateRepoCache(ownerKey, repoName)`
+
+```typescript
+import { getRepoCache, invalidateRepoCache } from 'git-edge';
+
+const repo = { fs, gitdir, cache: getRepoCache('alice', 'blog') };
+```
+
+isomorphic-git re-parses a packfile index from scratch on every
+`readTree`/`log`/`readObject` call unless callers share a `cache` object
+across calls — without one, an operation that touches many objects (walking
+commit history, a deep diff) pays that parse cost hundreds of times in a
+single request. `getRepoCache` returns a long-lived, per-repo `object`, keyed
+`` `${ownerKey}/${repoName}` ``, created on first access and reused across
+every subsequent call for that same repo within the process. At most 32 repos
+are held at once; adding a new one evicts the least recently used. Nothing is
+held on disk, so the cache is per-process and starts empty.
+
+<Aside type="tip">
+	isomorphic-git treats this `cache` as opaque and safe to share indefinitely
+	— git objects are content-addressed and immutable, so there's no staleness
+	risk from reusing it across requests, only from reusing it across a repo
+	whose *storage* was rewritten out from under it.
+</Aside>
+
+Call `invalidateRepoCache(ownerKey, repoName)` after anything rewrites a
+repo's storage independently of the process holding this cache — a rename, a
+bulk resync, a repack that ran elsewhere — so stale parsed pack state can't
+leak into the next read.
+
+```typescript
+await renameRepo('alice', 'blog', 'blog-v2');
+invalidateRepoCache('alice', 'blog');
+```

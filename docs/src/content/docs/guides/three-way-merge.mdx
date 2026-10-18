@@ -83,6 +83,21 @@ try {
 }
 ```
 
+## Concurrency
+
+A merge merges each directory's entries concurrently, so a wide directory
+would otherwise issue one object-store request per entry at once. `threeWayMerge`
+bounds the object reads and writes in flight to 16 per call. Each permit wraps
+one `readTree`, `readBlob`, `writeTree`, or `writeBlob` call and is released
+before the recursive subtree merge, so a permit is never held while waiting on
+a child merge — a wide tree cannot deadlock itself.
+
+If you need a cheap pre-merge check before calling `threeWayMerge` — resolve
+both refs and check ancestry, without walking any trees — use `analyzeMerge`
+from [`git-fs-s3/ops`](https://nandan-varma.github.io/git-fs-s3/ops/merge/). It
+shares the same `{ fs, gitdir, cache? }` shape and never detects content
+conflicts; only a real `threeWayMerge` call does that.
+
 ## Options
 
 `opts?: MergeOpts` — all optional:

@@ -28,24 +28,13 @@ import { /* ... */ } from 'git-edge';
 	tree.
 </ApiSignature>
 
-<ApiSignature
-	name="analyzeMerge"
-	signature="analyzeMerge(repo: Repo, sourceRef: string, targetRef: string): Promise<MergeAnalysis>"
-	returns="Promise<{ canMerge; fastForward; diverged }>"
->
-	Cheap pre-merge ancestry check — doesn't walk trees or detect content
-	conflicts. See
-	[Analyzing a merge](/git-edge/guides/analyze-merge/) for the
-	`canMerge: false` error-propagation contract.
-</ApiSignature>
-
 ## Parsed-object cache
 
 <ApiSignature
 	name="createParsedObjectCache"
 	signature="createParsedObjectCache(options?: ParsedObjectCacheOptions): ParsedObjectStore"
 	params={[
-		{ name: 'options.maxSize', type: 'number', description: 'Byte budget via <code>JSON.stringify</code> length. Default 256 MiB.', optional: true },
+		{ name: 'options.maxSize', type: 'number', description: 'Approximate byte budget; each entry is sized by walking its value (no serialization). Default 256 MiB.', optional: true },
 		{ name: 'options.ttl', type: 'number', description: 'Entry TTL in ms. Default 1 hour.', optional: true },
 	]}
 	returns="ParsedObjectStore"
@@ -65,7 +54,7 @@ interface ParsedObjectStore {
 }
 ```
 
-## Repo cache & init
+## Repo cache
 
 <ApiSignature
 	name="getRepoCache"
@@ -74,7 +63,7 @@ interface ParsedObjectStore {
 >
 	The long-lived isomorphic-git packfile `cache` for a repo, created on
 	first access. See
-	[Repo cache & init](/git-edge/guides/repo-cache-and-init/).
+	[Repo cache](/git-edge/guides/repo-cache/).
 </ApiSignature>
 
 <ApiSignature
@@ -83,24 +72,6 @@ interface ParsedObjectStore {
 >
 	Drops a repo's cached packfile state — call after any out-of-process
 	storage rewrite.
-</ApiSignature>
-
-<ApiSignature
-	name="initBareRepo"
-	signature="initBareRepo(repo: Repo, defaultBranch?: string): Promise<void>"
-	params={[{ name: 'defaultBranch', type: 'string', description: 'Default <code>"main"</code>.', optional: true }]}
->
-	Thin wrapper over `git.init({ ...repo, bare: true })`.
-</ApiSignature>
-
-<ApiSignature
-	name="estimateRepoSize"
-	signature="estimateRepoSize(repo: Repo, stat: (path: string) => Promise<{ size: number }>, list: (path: string) => Promise<string[]>): Promise<number>"
-	returns="Promise<number>"
->
-	Sums `.pack`/loose-object file sizes under `objects/`. Can be expensive
-	against remote storage — see the caution in
-	[Repo cache & init](/git-edge/guides/repo-cache-and-init/).
 </ApiSignature>
 
 ## Errors
@@ -128,8 +99,7 @@ interface ParsedObjectStore {
 
 | Export | Shape |
 | --- | --- |
-| `Repo` | `{ fs: FsClient; gitdir: string; cache?: object }` |
+| `Repo` | `{ fs: IsoGitFs; gitdir: string; cache?: object }` |
 | `MergeOpts` | `{ message?, authorName?, authorEmail? }` |
 | `MergeResult` | `{ commitOid: string }` |
-| `MergeAnalysis` | `{ canMerge: boolean; fastForward: boolean; diverged: boolean }` |
 | `ParsedObjectCacheOptions` | `{ maxSize?: number; ttl?: number }` |

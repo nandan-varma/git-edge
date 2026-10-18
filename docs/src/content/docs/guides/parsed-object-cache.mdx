@@ -12,7 +12,7 @@ const cache = createParsedObjectCache({ maxSize: 128 * 1024 * 1024, ttl: 3600_00
 ```
 
 isomorphic-git's own packfile `cache` object (see
-[Repo cache & init](/git-edge/guides/repo-cache-and-init/)) only saves you
+[Repo cache](/git-edge/guides/repo-cache/)) only saves you
 from re-parsing a pack index. Higher-level *parsed* results built on top of
 that — a rendered commit list, a resolved merge base, a formatted diff — get
 recomputed on every call unless something caches them too. `createParsedObjectCache`
@@ -36,14 +36,14 @@ resync, a repack that rewrites storage layout underneath a long-lived process.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `maxSize` | `256 * 1024 * 1024` (256 MiB) | Byte budget, estimated via `JSON.stringify(value).length` per entry. |
+| `maxSize` | `256 * 1024 * 1024` (256 MiB) | Approximate byte budget; each entry is sized by walking its value (no serialization). |
 | `ttl` | `3600 * 1000` (1 hour) | Entry time-to-live in ms. |
 
 <Aside type="note">
-	Size is *estimated*, not measured — `JSON.stringify` is run once per
-	`set()` purely to size the entry, so avoid caching values with expensive
-	`toJSON()`/circular-reference issues. It's a reasonable proxy for "how much
-	memory does this roughly cost," not a precise byte count.
+	Size is *estimated*, not measured — `set()` walks the value to size it
+	rather than serializing it, so it never allocates a JSON copy of a large
+	cached value. It's a reasonable proxy for "how much memory does this
+	roughly cost," not a precise byte count.
 </Aside>
 
 ## `invalidatePrefix`

@@ -19,13 +19,14 @@ for the full decision tree.
 A file with a NUL byte in any of the three versions is never line-merged —
 both sides changing it differently is reported as a conflict.
 
-## `estimateRepoSize` and the parsed-object cache are independent utilities
+## The parsed-object and repo caches are independent utilities
 
-Neither is required by `threeWayMerge` or `analyzeMerge` — they're
-general-purpose helpers extracted alongside the merge logic because the same
-production service needed them, not because the merge implementation depends
-on them. Use whichever pieces you need; nothing here requires importing all
-of them together.
+Neither `createParsedObjectCache` nor
+`getRepoCache`/`invalidateRepoCache` is required by `threeWayMerge` —
+they're general-purpose helpers extracted alongside the merge logic because
+the same production service needed them, not because the merge
+implementation depends on them. Use whichever pieces you need; nothing here
+requires importing all of them together.
 
 ## No worktree operations at all
 

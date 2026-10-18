@@ -1,49 +1,34 @@
-# Starlight Starter Kit: Basics
+# git-edge docs
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+The documentation site for [git-edge](../README.md), built with
+[Astro](https://docs.astro.build) and [Starlight](https://starlight.astro.build).
+The published site lives at https://nandan-varma.github.io/git-edge/.
 
-```
-npm create astro@latest -- --template starlight
-```
+Every page is Markdown or MDX under `src/content/docs/`. Starlight turns each
+file into a route based on its path, so `src/content/docs/guides/repo-cache.mdx`
+becomes `/git-edge/guides/repo-cache/`. The filename is the slug — if you rename
+a file, update every inbound link and the sidebar entry.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+The sidebar in `astro.config.mjs` lists what appears in the navigation, in
+order. Add a page by creating the file and then adding its slug to the relevant
+sidebar group. Internal links are checked at build time: a link to a route that
+no longer exists fails `npm run build`.
 
-## 🚀 Project Structure
+Static files, such as the favicon, go in `public/`. Shared layout and theme
+tweaks go in `src/styles/custom.css`; repeatable API blocks are components under
+`src/components/`.
 
-Inside of your Astro + Starlight project, you'll see the following folders and files:
+## Commands
 
-```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   └── docs/
-│   └── content.config.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
-```
+Run these from `docs/`:
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+| Command | Action |
+| --- | --- |
+| `npm install` | Install dependencies. |
+| `npm run dev` | Start the dev server at http://localhost:4321. |
+| `npm run build` | Build the production site to `./dist/`. |
+| `npm run preview` | Serve the built site locally. |
+| `npm run astro ...` | Run Astro CLI commands such as `astro check`. |
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
-
-Static assets, like favicons, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+The build fails on broken internal links, so run `npm run build` before you
+commit a page change.

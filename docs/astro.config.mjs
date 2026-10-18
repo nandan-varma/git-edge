@@ -10,7 +10,7 @@ export default defineConfig({
 		starlight({
 			title: 'git-edge',
 			description:
-				'High-level edge-compatible git operations on top of isomorphic-git: a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and repo-cache/init utilities.',
+			'High-level edge-compatible git operations on top of isomorphic-git: a parsed-object LRU cache, an object-level three-way merge that never needs a worktree, and per-repo packfile-cache management.',
 			social: [
 				{
 					icon: 'github',
@@ -35,9 +35,8 @@ export default defineConfig({
 					label: 'Guides',
 					items: [
 						{ label: 'Three-way merge', slug: 'guides/three-way-merge' },
-						{ label: 'Analyzing a merge', slug: 'guides/analyze-merge' },
 						{ label: 'Parsed-object cache', slug: 'guides/parsed-object-cache' },
-						{ label: 'Repo cache & init', slug: 'guides/repo-cache-and-init' },
+						{ label: 'Repo cache', slug: 'guides/repo-cache' },
 					],
 				},
 				{
