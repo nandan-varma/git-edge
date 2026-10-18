@@ -19,7 +19,9 @@ const author = {
 
 type Spec = Record<
 	string,
-	string | { content: string | Uint8Array; mode: string }
+	| string
+	| { content: string | Uint8Array; mode: string }
+	| { oid: string; mode: "160000" }
 >;
 
 async function makeRepo(): Promise<{ repo: Repo; store: MemoryObjectStore }> {
@@ -50,6 +52,15 @@ async function writeSpec(repo: Repo, spec: Spec): Promise<string> {
 	}
 	const tree = [];
 	for (const [name, value] of files) {
+		if (typeof value !== "string" && "oid" in value) {
+			tree.push({
+				path: name,
+				mode: value.mode,
+				type: "commit" as const,
+				oid: value.oid,
+			});
+			continue;
+		}
 		const { content, mode } =
 			typeof value === "string" ? { content: value, mode: "100644" } : value;
 		const blob =
@@ -287,4 +298,70 @@ describe("threeWayMerge semantics", () => {
 		await commit(repo, "feature", { "b.txt": "b\n" }, []);
 		await expect(merge(repo)).rejects.toBeInstanceOf(GitEdgeError);
 	});
+});
+
+describe("submodule merges", () => {
+	const a = { oid: "1".repeat(40), mode: "160000" as const };
+	const b = { oid: "2".repeat(40), mode: "160000" as const };
+	const c = { oid: "3".repeat(40), mode: "160000" as const };
+	it.each<{
+		base: Spec;
+		ours: Spec;
+		theirs: Spec;
+		expected: { oid: string; mode: "160000" } | null;
+	}>([
+		{
+			base: { lib: a },
+			ours: { lib: a, ours: "ours" },
+			theirs: { lib: b },
+			expected: b,
+		},
+		{
+			base: { lib: a },
+			ours: { lib: b, ours: "ours" },
+			theirs: { lib: a },
+			expected: b,
+		},
+		{
+			base: { lib: a },
+			ours: { lib: b, ours: "ours" },
+			theirs: { lib: b },
+			expected: b,
+		},
+		{
+			base: { lib: a },
+			ours: { lib: a, ours: "ours" },
+			theirs: {},
+			expected: null,
+		},
+		{ base: {}, ours: { ours: "ours" }, theirs: { lib: a }, expected: a },
+	])(
+		"preserves a clean pointer decision %#",
+		async ({ base, ours, theirs, expected }) => {
+			const { repo } = await diverge(base, ours, theirs);
+			const { commitOid } = await threeWayMerge(repo, "feature", "main");
+			const { commit: c } = await git.readCommit({ ...repo, oid: commitOid });
+			const { tree } = await git.readTree({ ...repo, oid: c.tree });
+			const entry = tree.find((e) => e.path === "lib");
+			if (expected)
+				expect(entry).toMatchObject({ ...expected, type: "commit" });
+			else expect(entry).toBeUndefined();
+		},
+	);
+	it.each<{ ours: Spec; theirs: Spec }>([
+		{ ours: { lib: b }, theirs: { lib: c } },
+		{ ours: {}, theirs: { lib: b } },
+		{ ours: { lib: b }, theirs: { lib: "ordinary file" } },
+		{ ours: { lib: b }, theirs: { "lib/file": "directory" } },
+	])(
+		"reports conflicting pointer/structure changes without moving refs %#",
+		async ({ ours, theirs }) => {
+			const { repo } = await diverge({ lib: a }, ours, theirs);
+			const before = await git.resolveRef({ ...repo, ref: "main" });
+			await expect(
+				threeWayMerge(repo, "feature", "main"),
+			).rejects.toMatchObject({ conflictingPaths: ["lib"] });
+			expect(await git.resolveRef({ ...repo, ref: "main" })).toBe(before);
+		},
+	);
 });
