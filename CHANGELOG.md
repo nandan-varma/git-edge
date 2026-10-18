@@ -2,14 +2,14 @@
 
 This changelog is derived from this repository's release history; it is ordered newest first.
 
-## [Unreleased]
+## [0.5.0] - 2026-10-18
 
 ### Changed
 
-- Licence: AGPL-3.0-or-later (was MIT). Versions up to and including
-  `0.4.2` were published under MIT and remain available under it; from the
-  next release onward, a network service built on this package must offer its
-  users the corresponding source (AGPL section 13).
+- Licence: AGPL-3.0-or-later (was MIT). Versions up to and including `0.4.2`
+  were published under MIT and remain available under it; from this release
+  onward, a network service built on this package must offer its users the
+  corresponding source (AGPL section 13).
 
 ## [0.4.2](https://github.com/nandan-varma/git-edge/compare/v0.4.1...v0.4.2) - 2026-10-18
 
