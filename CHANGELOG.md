@@ -2,6 +2,17 @@
 
 This changelog is derived from this repository's release history; it is ordered newest first.
 
+## [0.6.0] - 2026-10-19
+
+### Changed
+
+- Requires isomorphic-git 1.44.3 or later (peer range and dev dependency).
+  Earlier versions swallowed read and readdir errors other than
+  file-not-found (fixed upstream in 1.44.3, isomorphic-git#2461), so a
+  transient object-store failure could surface as a missing object instead
+  of an error.
+- Dev dependency on git-fs-s3 moves to ^0.12.1.
+
 ## [0.5.0] - 2026-10-18
 
 ### Changed
