@@ -1,5 +1,11 @@
 # git-edge
 
+> **Moved.** `git-edge` is now developed in the PushStack monorepo:
+> [nandan-varma/pushstack/packages/git-edge](https://github.com/nandan-varma/pushstack/tree/main/packages/git-edge)
+> (full history preserved). Issues and pull requests go there. The npm package name is unchanged.
+
+# git-edge
+
 [![npm version](https://img.shields.io/npm/v/git-edge.svg)](https://www.npmjs.com/package/git-edge)
 [![CI](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/nandan-varma/git-edge/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/git-edge.svg)](LICENSE)
